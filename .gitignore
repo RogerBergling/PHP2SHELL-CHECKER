@@ -1,0 +1,22 @@
+# Miljoefiler och hemligheter
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_ed25519
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Node / build
+node_modules/
+dist/
+build/
+
+# Lokala editorer och loggar
+.vscode/
+*.log

@@ -1,0 +1,5 @@
+# Exempellista. Ett mål per rad. Rader som börjar med # ignoreras.
+# Byt ut adresserna mot system som du äger eller har tillstånd att testa.
+#
+# https://example.com
+# https://example.org

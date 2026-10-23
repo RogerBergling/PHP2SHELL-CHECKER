@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="scanner-token" content="{{TOKEN}}">
+<meta name="color-scheme" content="dark">
+<title>PHP2Shell Checker</title>
+<style>
+  :root {
+    --bg: #08101d;
+    --bg2: #0c1628;
+    --panel: #101c31;
+    --panel-2: #15243d;
+    --border: #223757;
+    --border-soft: #1a2b47;
+    --text: #e8eff9;
+    --muted: #91a6c4;
+    --muted-2: #6f849f;
+    --accent: #3ddc97;
+    --accent-2: #5aa9ff;
+    --red: #ff6372;
+    --red-bg: rgba(255, 99, 114, .12);
+    --orange: #ffb020;
+    --orange-bg: rgba(255, 176, 32, .12);
+    --green: #3ddc97;
+    --green-bg: rgba(61, 220, 151, .12);
+    --gray: #8aa0be;
+    --gray-bg: rgba(138, 160, 190, .1);
+    --shadow: 0 18px 50px rgba(0, 0, 0, .28);
+    --radius: 14px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(1100px 600px at 85% -10%, rgba(90, 169, 255, .16), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(61, 220, 151, .10), transparent 55%),
+      linear-gradient(180deg, var(--bg2), var(--bg) 45%);
+    color: var(--text);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .hidden { display: none !important; }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 22px clamp(16px, 4vw, 44px) 14px;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .logo {
+    width: 46px; height: 46px; flex: 0 0 auto;
+    display: grid; place-items: center;
+    border-radius: 13px;
+    background: linear-gradient(145deg, rgba(61, 220, 151, .24), rgba(90, 169, 255, .18));
+    border: 1px solid rgba(61, 220, 151, .45);
+    box-shadow: 0 0 28px rgba(61, 220, 151, .12), inset 0 1px 0 rgba(255, 255, 255, .08);
+    font-family: var(--mono);
+    font-weight: 800;
+    letter-spacing: -.08em;
+    color: var(--accent);
+  }
+  h1 { margin: 0; font-size: clamp(19px, 2.2vw, 26px); letter-spacing: -.02em; }
+  .tagline { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+  .top-actions { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+  .version-pill {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    border: 1px solid var(--border); background: rgba(255, 255, 255, .02);
+    padding: 5px 9px; border-radius: 999px; white-space: nowrap;
+  }
+  .ghost-link { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+
+  main {
+    display: grid;
+    grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+    gap: 18px;
+    padding: 8px clamp(16px, 4vw, 44px) 20px;
+    align-items: start;
+  }
+  .panel {
+    background: linear-gradient(180deg, rgba(255, 255, 255, .025), transparent 40%), var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .side { padding: 18px; position: sticky; top: 14px; }
+  .results { padding: 18px; min-width: 0; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .panel-head h2 { margin: 0; font-size: 14px; letter-spacing: .01em; }
+  .hint { color: var(--muted-2); font-size: 11.5px; white-space: nowrap; }
+
+  .drop-zone { position: relative; }
+  textarea {
+    width: 100%; min-height: 166px; resize: vertical;
+    background: #0a1424; border: 1px solid var(--border); border-radius: 11px;
+    padding: 12px; color: var(--text); outline: none;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  textarea::placeholder { color: #5f7a9b; }
+  textarea:focus { border-color: rgba(90, 169, 255, .65); box-shadow: 0 0 0 3px rgba(90, 169, 255, .10); }
+  .drop-zone.drag textarea { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(61, 220, 151, .12); }
+  .drop-hint {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    border-radius: 11px; background: rgba(8, 16, 29, .86);
+    color: var(--accent); font-weight: 600; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .15s;
+    border: 2px dashed rgba(61, 220, 151, .55);
+  }
+  .drop-zone.drag .drop-hint { opacity: 1; }
+
+  .file-row { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
+  .btn {
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+    padding: 8px 12px; border-radius: 9px; font-weight: 600; font-size: 12.5px;
+    transition: transform .08s, border-color .15s, background .15s, opacity .15s;
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  }
+  .btn:hover { border-color: #35527d; background: #1a2b48; }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .btn.primary {
+    background: linear-gradient(180deg, #41e5a1, #2ec584);
+    border-color: #55eab0; color: #032116;
+    box-shadow: 0 10px 24px rgba(61, 220, 151, .18), inset 0 1px 0 rgba(255, 255, 255, .28);
+  }
+  .btn.primary:hover { background: linear-gradient(180deg, #56efaf, #35d28f); }
+  .btn.danger { background: linear-gradient(180deg, #ff7180, #e94c5c); border-color: #ff8b97; color: #2a0006; }
+  .btn.small { padding: 6px 9px; font-size: 11.5px; }
+  .btn.big { width: 100%; padding: 11px 14px; font-size: 13.5px; margin-top: 10px; }
+  .btn.ghost { background: rgba(255, 255, 255, .025); }
+
+  .options { margin-top: 16px; border-top: 1px solid var(--border-soft); padding-top: 12px; }
+  .options summary, .advanced summary, .info summary {
+    cursor: pointer; color: var(--muted); font-weight: 600; font-size: 12px;
+    list-style: none; user-select: none;
+  }
+  .options summary::-webkit-details-marker, .advanced summary::-webkit-details-marker, .info summary::-webkit-details-marker { display: none; }
+  .options summary::before, .advanced summary::before, .info summary::before { content: "▸ "; color: var(--accent-2); }
+  .options[open] > summary::before, .advanced[open] > summary::before, .info[open] > summary::before { content: "▾ "; }
+  .opt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 11px 0 8px; }
+  .opt-grid label, .advanced label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 11px; }
+  input[type="number"], input[type="text"], select, #search {
+    background: #0a1424; border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 8px; color: var(--text); outline: none; min-width: 0;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus, #search:focus { border-color: rgba(90, 169, 255, .65); box-shadow: 0 0 0 3px rgba(90, 169, 255, .08); }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-top: 8px; cursor: pointer; }
+  .check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+  .tip { color: var(--accent-2); cursor: help; font-size: 12px; }
+  .advanced { margin-top: 10px; }
+  .advanced label { margin-top: 8px; }
+
+  .legal { color: var(--muted-2); font-size: 10.8px; line-height: 1.45; margin: 12px 0 0; border-left: 2px solid rgba(255, 176, 32, .5); padding-left: 9px; }
+
+  .result-actions { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+  .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .stat {
+    background: var(--panel-2); border: 1px solid var(--border-soft);
+    border-radius: 10px; padding: 9px 10px; min-width: 0;
+    cursor: pointer; transition: border-color .15s, transform .08s, background .15s;
+  }
+  .stat:hover { border-color: #35527d; background: #192945; }
+  .stat:active { transform: translateY(1px); }
+  .stat .n { display: block; font-size: 20px; font-weight: 750; letter-spacing: -.03em; line-height: 1.1; }
+  .stat .l { display: block; color: var(--muted-2); font-size: 10px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stat[data-filter="vulnerable"] .n { color: var(--red); }
+  .stat[data-filter="php_unknown"] .n { color: var(--orange); }
+  .stat[data-filter="safe"] .n { color: var(--green); }
+  .stat[data-filter="not_php"] .n { color: var(--gray); }
+  .stat[data-filter="error"] .n { color: #ff9a8a; }
+
+  .progress-wrap { margin-bottom: 12px; }
+  .progress { height: 6px; background: #0a1424; border: 1px solid var(--border-soft); border-radius: 999px; overflow: hidden; }
+  #progressBar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width .18s ease; }
+  .progress-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted-2); font-size: 11px; margin-top: 5px; }
+  #statusText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; margin-bottom: 10px; }
+  #search { width: 100%; }
+  .table-wrap { border: 1px solid var(--border-soft); border-radius: 11px; overflow: auto; max-height: min(62vh, 820px); }
+  table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: #0e1a2e; color: var(--muted-2); font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .07em; text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td { padding: 9px 10px; border-bottom: 1px solid rgba(34, 55, 87, .55); vertical-align: top; font-size: 12.2px; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .result-row { cursor: pointer; }
+  .result-row:hover { background: rgba(90, 169, 255, .045); }
+  .verdict-vulnerable.result-row { background: rgba(255, 99, 114, .035); }
+  .url-cell { max-width: 420px; }
+  .url { font-weight: 600; word-break: break-all; }
+  .final { color: var(--muted-2); font-size: 10.8px; word-break: break-all; margin-top: 2px; }
+  .tag {
+    display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 999px;
+    background: rgba(90, 169, 255, .10); border: 1px solid rgba(90, 169, 255, .22);
+    color: #9ecbff; font-size: 10px;
+  }
+  code { font-family: var(--mono); font-size: 11.5px; color: #cfe2ff; background: rgba(90, 169, 255, .08); padding: 1px 5px; border-radius: 5px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px;
+    font-size: 10.8px; font-weight: 700; white-space: nowrap; border: 1px solid transparent;
+  }
+  .badge.bad { color: #ffb3ba; background: var(--red-bg); border-color: rgba(255, 99, 114, .32); }
+  .badge.warn { color: #ffd27a; background: var(--orange-bg); border-color: rgba(255, 176, 32, .3); }
+  .badge.good { color: #8df0c4; background: var(--green-bg); border-color: rgba(61, 220, 151, .28); }
+  .badge.neutral { color: #b8c7da; background: var(--gray-bg); border-color: rgba(138, 160, 190, .22); }
+  .badge.err { color: #ffb3a8; background: rgba(255, 120, 100, .1); border-color: rgba(255, 120, 100, .28); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+  .dot.yes { background: var(--green); box-shadow: 0 0 8px rgba(61, 220, 151, .7); }
+  .dot.no { background: #4e607a; }
+  .chev { color: var(--muted-2); text-align: right; font-size: 16px; line-height: 1; }
+  .detail-row { background: #0b1629; }
+  .detail-row td { padding: 12px 14px 16px; border-bottom: 1px solid var(--border); }
+  .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 18px; }
+  .detail-grid div { min-width: 0; }
+  .detail-grid span { display: block; color: var(--muted-2); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+  .detail-grid strong { display: block; font-weight: 500; font-size: 11.8px; word-break: break-all; margin-top: 1px; }
+  .detail-note { margin-top: 10px; color: #c3d3e8; font-size: 12px; }
+  .evidence { margin-top: 10px; }
+  .evidence h4 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted-2); }
+  .evidence ul { margin: 0; padding-left: 17px; color: var(--muted); font-size: 11.5px; }
+  .evidence li { margin: 3px 0; word-break: break-word; }
+  .empty { padding: 34px 16px; text-align: center; color: var(--muted-2); font-size: 12.5px; }
+
+  .info { margin: 0 clamp(16px, 4vw, 44px) 18px; border: 1px solid var(--border-soft); border-radius: var(--radius); background: rgba(16, 28, 49, .66); padding: 14px 18px; }
+  .info[open] { padding-bottom: 16px; }
+  .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-top: 12px; }
+  .info h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted-2); margin: 0 0 5px; }
+  .info p, .info li { color: var(--muted); font-size: 12px; margin: 0 0 5px; }
+  .info ul { padding-left: 17px; margin: 0; }
+  footer { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; color: var(--muted-2); font-size: 10.8px; padding: 0 clamp(16px, 4vw, 44px) 26px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 18px);
+    background: #16243c; border: 1px solid #315076; color: var(--text);
+    padding: 10px 14px; border-radius: 10px; box-shadow: var(--shadow);
+    font-size: 12.5px; max-width: min(92vw, 560px); opacity: 0; pointer-events: none;
+    transition: opacity .18s, transform .18s; z-index: 50;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.err { border-color: rgba(255, 99, 114, .55); color: #ffd0d4; }
+
+  @media (max-width: 980px) {
+    main { grid-template-columns: 1fr; }
+    .side { position: static; }
+    .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (max-width: 560px) {
+    .topbar { align-items: flex-start; }
+    .top-actions { flex-direction: column; align-items: flex-end; gap: 5px; }
+    .opt-grid { grid-template-columns: 1fr 1fr; }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .toolbar { grid-template-columns: 1fr; }
+    .panel { border-radius: 12px; }
+    .side, .results { padding: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">P2S</div>
+    <div>
+      <h1>PHP2Shell Checker</h1>
+      <p class="tagline">Defensiv kontroll av PHP och PHP2Shell (CVE-2026-109618 &amp; CVE-2026-109619)</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span class="version-pill" id="versionPill">v{{VERSION}}</span>
+    <a class="ghost-link" href="https://github.com/NCSC-NL/php2shell" target="_blank" rel="noopener noreferrer">Om sårbarheten ↗</a>
+  </div>
+</header>
+
+<main>
+  <section class="panel side">
+    <div class="panel-head">
+      <h2>1. Webbplatser</h2>
+      <span class="hint" id="targetCount">0 unika</span>
+    </div>
+
+    <div class="drop-zone" id="dropZone">
+      <textarea id="targets" spellcheck="false" autocomplete="off" placeholder="https://example.com&#10;example.org&#10;https://butik.example.se&#10;&#10;# Rader som börjar med # ignoreras"></textarea>
+      <div class="drop-hint">Släpp en .txt-fil här</div>
+    </div>
+
+    <div class="file-row">
+      <input type="file" id="fileInput" accept=".txt,.csv,text/plain" hidden>
+      <button type="button" class="btn ghost" id="pickFile">Ladda fil…</button>
+      <button type="button" class="btn ghost" id="clearTargets">Rensa</button>
+    </div>
+
+    <details class="options" open>
+      <summary>2. Inställningar</summary>
+      <div class="opt-grid">
+        <label>Tidsgräns (s)
+          <input type="number" id="timeout" min="2" max="120" value="10">
+        </label>
+        <label>Samtidiga
+          <input type="number" id="concurrency" min="1" max="32" value="5">
+        </label>
+        <label>Fördröjning/värd (ms)
+          <input type="number" id="delay" min="0" max="10000" value="250">
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="followRedirects" checked> Följ omdirigeringar</label>
+      <label class="check"><input type="checkbox" id="deepCheck" checked> Utökad kontroll
+        <span class="tip" title="Gör upp till två extra GET-anrop per sajt (index.php och en slumpmässig .php i samma sökväg) för att upptäcka PHP när startsidan inte avslöjar det.">ⓘ</span>
+      </label>
+      <label class="check"><input type="checkbox" id="insecureTls"> Ignorera TLS-fel</label>
+      <details class="advanced">
+        <summary>Avancerat</summary>
+        <label>User-Agent
+          <input type="text" id="userAgent" value="PHP2ShellChecker/1.0 (defensive vulnerability check)">
+        </label>
+      </details>
+    </details>
+
+    <button type="button" class="btn primary big" id="scanBtn">Starta skanning</button>
+    <button type="button" class="btn danger big hidden" id="cancelBtn">Avbryt skanning</button>
+
+    <p class="legal">Använd bara på system du har tillstånd att testa. Skannern exploaterar inte sårbarheten – den gör vanliga GET-förfrågningar och ändrar ingenting.</p>
+  </section>
+
+  <section class="panel results">
+    <div class="panel-head">
+      <h2>Resultat</h2>
+      <div class="result-actions">
+        <button type="button" class="btn ghost small" id="exportCsv" disabled>CSV</button>
+        <button type="button" class="btn ghost small" id="exportJson" disabled>JSON</button>
+        <button type="button" class="btn ghost small" id="shutdownBtn">Stäng av</button>
+      </div>
+    </div>
+
+    <div class="stats" id="stats">
+      <div class="stat" data-filter="all" role="button" tabindex="0"><span class="n" id="statTotal">0</span><span class="l">Totalt</span></div>
+      <div class="stat" data-filter="vulnerable" role="button" tabindex="0"><span class="n" id="statVulnerable">0</span><span class="l">Sårbara</span></div>
+      <div class="stat" data-filter="php_unknown" role="button" tabindex="0"><span class="n" id="statUnknown">0</span><span class="l">Okänd version</span></div>
+      <div class="stat" data-filter="safe" role="button" tabindex="0"><span class="n" id="statSafe">0</span><span class="l">Åtgärdade</span></div>
+      <div class="stat" data-filter="not_php" role="button" tabindex="0"><span class="n" id="statNotPhp">0</span><span class="l">Inte PHP</span></div>
+      <div class="stat" data-filter="error" role="button" tabindex="0"><span class="n" id="statErrors">0</span><span class="l">Fel</span></div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress"><div id="progressBar"></div></div>
+      <div class="progress-meta">
+        <span id="statusText">Redo att skanna</span>
+        <span id="progressText">0 / 0</span>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Sök URL, version, server…" autocomplete="off">
+      <select id="filter" aria-label="Filtrera resultat">
+        <option value="all">Alla</option>
+        <option value="vulnerable">Sårbara</option>
+        <option value="php_unknown">Okänd version</option>
+        <option value="safe">Åtgärdade</option>
+        <option value="not_php">Inte PHP</option>
+        <option value="error">Fel</option>
+      </select>
+      <select id="sort" aria-label="Sortera resultat">
+        <option value="arrival">Ankomst</option>
+        <option value="severity">Allvarligast först</option>
+        <option value="url">URL A–Ö</option>
+      </select>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Webbplats</th>
+            <th>HTTP</th>
+            <th>PHP</th>
+            <th>Version</th>
+            <th>Bedömning</th>
+            <th>Tid</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+      <div class="empty" id="emptyState">Inga resultat ännu. Lägg till en eller flera webbplatser och starta skanningen.</div>
+    </div>
+  </section>
+</main>
+
+<details class="info">
+  <summary>Om PHP2Shell och hur kontrollen fungerar</summary>
+  <div class="info-grid">
+    <div>
+      <h3>Vad kontrolleras?</h3>
+      <p>Skannern letar efter PHP-indikatorer i HTTP-huvuden, cookies, HTML-länkar, felmeddelanden och kända PHP-applikationer. Om en version hittas jämförs den med de rättade PHP-versionerna.</p>
+    </div>
+    <div>
+      <h3>Rättade versioner</h3>
+      <ul>
+        <li>PHP 8.5.12 eller senare</li>
+        <li>PHP 8.4.27 eller senare</li>
+        <li>PHP 8.3.36 eller senare</li>
+        <li>PHP 8.2.35 eller senare</li>
+        <li>PHP 8.1 och äldre: EOL – backport krävs</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Begränsningar</h3>
+      <p>En sajt kan vara PHP-baserad utan att avslöja versionen. <strong>PHP – okänd version</strong> betyder att du måste kontrollera servern manuellt. CDN, WAF och anpassade fel sidor kan dölja svaren.</p>
+    </div>
+    <div>
+      <h3>Läs mer</h3>
+      <p><a href="https://github.com/NCSC-NL/php2shell" target="_blank" rel="noopener noreferrer">NCSC-NL: php2shell</a><br>
+      <a href="https://www.php.net/archive/2026.php#2026-10-21-5" target="_blank" rel="noopener noreferrer">PHP:s säkerhetsadvisory</a><br>
+      <a href="https://sansec.io/research/php2shell" target="_blank" rel="noopener noreferrer">Sansec: PHP2Shell</a></p>
+    </div>
+  </div>
+</details>
+
+<footer>
+  <span>PHP2Shell Checker v{{VERSION}} · defensiv kontroll · inga exploit-payloads</span>
+  <span>Använd endast med tillstånd från systemets ägare.</span>
+</footer>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  const TOKEN = document.querySelector('meta[name="scanner-token"]').content;
+  const $ = (id) => document.getElementById(id);
+  const targetsEl = $("targets");
+  const resultsBody = $("resultsBody");
+  const emptyState = $("emptyState");
+  const scanBtn = $("scanBtn");
+  const cancelBtn = $("cancelBtn");
+  const progressBar = $("progressBar");
+  const progressText = $("progressText");
+  const statusText = $("statusText");
+  const searchEl = $("search");
+  const filterEl = $("filter");
+  const sortEl = $("sort");
+  const toastEl = $("toast");
+
+  const state = {
+    results: [],
+    scanning: false,
+    total: 0,
+    scanned: 0,
+    startedAt: 0,
+    timer: null,
+    controller: null,
+    filter: "all",
+    query: "",
+    sort: "arrival",
+    toastTimer: null,
+  };
+
+  const OPTION_IDS = ["timeout", "concurrency", "delay", "followRedirects", "deepCheck", "insecureTls", "userAgent"];
+
+  function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  function toast(message, isError = false) {
+    clearTimeout(state.toastTimer);
+    toastEl.textContent = message;
+    toastEl.classList.toggle("err", isError);
+    toastEl.classList.add("show");
+    state.toastTimer = setTimeout(() => toastEl.classList.remove("show"), 4200);
+  }
+
+  function clampInt(value, min, max, fallback) {
+    const n = Number.parseInt(value, 10);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function parseTargets(text) {
+    const seen = new Set();
+    const out = [];
+    for (const rawLine of text.split(/\r?\n/)) {
+      let line = rawLine.trim();
+      if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+      line = line.split(/\s+/)[0];
+      if (line.includes(",") && !line.includes("?")) line = line.split(",")[0].trim();
+      line = line.replace(/^["'<]+|["'>]+$/g, "");
+      if (!line) continue;
+      const key = line.toLowerCase().replace(/\/+$/, "");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(line);
+    }
+    return out;
+  }
+
+  function updateTargetCount() {
+    const count = parseTargets(targetsEl.value).length;
+    $("targetCount").textContent = `${count} unik${count === 1 ? "" : "a"}`;
+  }
+
+  function readOptions() {
+    return {
+      timeoutSeconds: clampInt($("timeout").value, 2, 120, 10),
+      concurrency: clampInt($("concurrency").value, 1, 32, 5),
+      delayMs: clampInt($("delay").value, 0, 10000, 250),
+      followRedirects: $("followRedirects").checked,
+      deepCheck: $("deepCheck").checked,
+      insecureTls: $("insecureTls").checked,
+      userAgent: $("userAgent").value.trim() || "PHP2ShellChecker/1.0 (defensive vulnerability check)",
+    };
+  }
+
+  function saveOptions() {
+    try {
+      const opts = readOptions();
+      localStorage.setItem("php2shell-options", JSON.stringify(opts));
+    } catch (_) {}
+  }
+
+  function loadOptions() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("php2shell-options") || "null");
+      if (!saved) return;
+      if (saved.timeoutSeconds != null) $("timeout").value = saved.timeoutSeconds;
+      if (saved.concurrency != null) $("concurrency").value = saved.concurrency;
+      if (saved.delayMs != null) $("delay").value = saved.delayMs;
+      if (typeof saved.followRedirects === "boolean") $("followRedirects").checked = saved.followRedirects;
+      if (typeof saved.deepCheck === "boolean") $("deepCheck").checked = saved.deepCheck;
+      if (typeof saved.insecureTls === "boolean") $("insecureTls").checked = saved.insecureTls;
+      if (saved.userAgent) $("userAgent").value = saved.userAgent;
+    } catch (_) {}
+  }
+
+  function setProgress(scanned, total) {
+    state.scanned = scanned;
+    state.total = total;
+    const pct = total > 0 ? Math.min(100, (scanned / total) * 100) : 0;
+    progressBar.style.width = pct + "%";
+    progressText.textContent = `${scanned} / ${total}`;
+  }
+
+  function verdictClass(verdict) {
+    return ({ vulnerable: "bad", php_unknown: "warn", safe: "good", not_php: "neutral", error: "err" })[verdict] || "neutral";
+  }
+
+  function badgeHTML(result) {
+    return `<span class="badge ${verdictClass(result.verdict)}">${escapeHTML(result.verdictLabel || result.verdict)}</span>`;
+  }
+
+  function matches(result) {
+    if (state.filter !== "all" && result.verdict !== state.filter) return false;
+    if (!state.query) return true;
+    const haystack = [
+      result.input, result.finalUrl, result.phpVersion, result.server, result.poweredBy,
+      result.app, result.verdictLabel, result.error, ...(result.evidence || [])
+    ].join(" ").toLowerCase();
+    return haystack.includes(state.query);
+  }
+
+  function sortedResults() {
+    const list = state.results.filter(matches);
+    if (state.sort === "url") {
+      list.sort((a, b) => String(a.input).localeCompare(String(b.input), "sv"));
+    } else if (state.sort === "severity") {
+      const order = { vulnerable: 0, php_unknown: 1, error: 2, safe: 3, not_php: 4 };
+      list.sort((a, b) => (order[a.verdict] ?? 9) - (order[b.verdict] ?? 9));
+    }
+    return list;
+  }
+
+  function detailHTML(result) {
+    const fields = [
+      ["Slutlig URL", result.finalUrl],
+      ["HTTP-status", result.statusCode],
+      ["Server", result.server],
+      ["X-Powered-By", result.poweredBy],
+      ["PHP-version", result.phpVersion ? result.phpVersion + (result.versionSource ? ` (${result.versionSource})` : "") : ""],
+      ["Applikation", result.app],
+      ["Svarstid", result.elapsedMs != null ? result.elapsedMs + " ms" : ""],
+      ["Rättad version", result.fixedIn],
+      ["Fel", result.error],
+      ["Kontrollerad", result.checkedAt],
+    ].filter(([, value]) => value !== undefined && value !== null && value !== "");
+
+    const evidence = (result.evidence || []).length
+      ? `<div class="evidence"><h4>Bevis</h4><ul>${result.evidence.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul></div>`
+      : "";
+
+    return `
+      <div class="detail-grid">
+        ${fields.map(([label, value]) => `<div><span>${escapeHTML(label)}</span><strong>${escapeHTML(value)}</strong></div>`).join("")}
+      </div>
+      ${result.detail ? `<div class="detail-note">${escapeHTML(result.detail)}</div>` : ""}
+      ${evidence}
+    `;
+  }
+
+  function makeRow(result) {
+    const tr = document.createElement("tr");
+    tr.className = `result-row verdict-${result.verdict}`;
+    tr.innerHTML = `
+      <td class="url-cell">
+        <div class="url">${escapeHTML(result.input)}</div>
+        ${result.finalUrl && result.finalUrl !== result.input ? `<div class="final">${escapeHTML(result.finalUrl)}</div>` : ""}
+        ${result.app ? `<span class="tag">${escapeHTML(result.app)}</span>` : ""}
+      </td>
+      <td>${result.statusCode || "–"}</td>
+      <td><span class="dot ${result.phpDetected ? "yes" : "no"}"></span>${result.phpDetected ? "Ja" : "Nej"}</td>
+      <td>${result.phpVersion ? `<code>${escapeHTML(result.phpVersion)}</code>` : "–"}</td>
+      <td>${badgeHTML(result)}</td>
+      <td>${result.elapsedMs != null ? result.elapsedMs + " ms" : "–"}</td>
+      <td class="chev">›</td>
+    `;
+
+    const detail = document.createElement("tr");
+    detail.className = "detail-row hidden";
+    detail.innerHTML = `<td colspan="7">${detailHTML(result)}</td>`;
+
+    tr.addEventListener("click", () => {
+      detail.classList.toggle("hidden");
+      tr.querySelector(".chev").textContent = detail.classList.contains("hidden") ? "›" : "⌄";
+    });
+    return [tr, detail];
+  }
+
+  function renderAll() {
+    resultsBody.replaceChildren();
+    const list = sortedResults();
+    for (const result of list) {
+      const [row, detail] = makeRow(result);
+      resultsBody.append(row, detail);
+    }
+    emptyState.classList.toggle("hidden", list.length > 0);
+    if (list.length === 0) {
+      if (state.results.length === 0) {
+        emptyState.textContent = "Inga resultat ännu. Lägg till en eller flera webbplatser och starta skanningen.";
+      } else {
+        emptyState.textContent = "Inga resultat matchar filtret eller sökningen.";
+      }
+    }
+    updateStats();
+  }
+
+  function updateStats() {
+    const counts = { all: state.results.length, vulnerable: 0, php_unknown: 0, safe: 0, not_php: 0, error: 0 };
+    for (const result of state.results) {
+      if (counts[result.verdict] != null) counts[result.verdict]++;
+    }
+    $("statTotal").textContent = counts.all;
+    $("statVulnerable").textContent = counts.vulnerable;
+    $("statUnknown").textContent = counts.php_unknown;
+    $("statSafe").textContent = counts.safe;
+    $("statNotPhp").textContent = counts.not_php;
+    $("statErrors").textContent = counts.error;
+    const hasResults = state.results.length > 0;
+    $("exportCsv").disabled = !hasResults;
+    $("exportJson").disabled = !hasResults;
+  }
+
+  function addResult(result) {
+    state.results.push(result);
+    if (matches(result)) {
+      const [row, detail] = makeRow(result);
+      resultsBody.append(row, detail);
+      emptyState.classList.add("hidden");
+    }
+    updateStats();
+  }
+
+  function resetResults() {
+    state.results = [];
+    resultsBody.replaceChildren();
+    emptyState.classList.remove("hidden");
+    emptyState.textContent = "Skannar… resultat visas här allt eftersom.";
+    setProgress(0, 0);
+    updateStats();
+  }
+
+  function setScanning(active) {
+    state.scanning = active;
+    scanBtn.classList.toggle("hidden", active);
+    cancelBtn.classList.toggle("hidden", !active);
+    saveOptions();
+    if (active) {
+      state.startedAt = performance.now();
+      clearInterval(state.timer);
+      state.timer = setInterval(() => {
+        if (!state.scanning) return;
+        const seconds = ((performance.now() - state.startedAt) / 1000).toFixed(1);
+        statusText.textContent = `Skannar… ${seconds} s`;
+      }, 200);
+    } else {
+      clearInterval(state.timer);
+      state.timer = null;
+    }
+  }
+
+  function handleEvent(event) {
+    if (event.type === "start") {
+      setProgress(0, event.total || 0);
+      statusText.textContent = `Skannar ${event.total} webbplats${event.total === 1 ? "" : "er"}…`;
+      return;
+    }
+    if (event.type === "result" && event.result) {
+      addResult(event.result);
+      setProgress(state.scanned + 1, state.total);
+      return;
+    }
+    if (event.type === "done") {
+      setProgress(event.scanned != null ? event.scanned : state.results.length, Math.max(state.total, state.results.length));
+      const seconds = event.elapsedMs != null ? (event.elapsedMs / 1000).toFixed(1) : null;
+      statusText.textContent = `Klart${seconds ? ` på ${seconds} s` : ""} – ${state.results.length} resultat`;
+      return;
+    }
+    if (event.type === "error") {
+      toast(event.message || "Skannern rapporterade ett fel.", true);
+    }
+  }
+
+  async function startScan() {
+    if (state.scanning) {
+      cancelScan();
+      return;
+    }
+    const targets = parseTargets(targetsEl.value);
+    if (targets.length === 0) {
+      toast("Lägg till minst en webbplats först.", true);
+      targetsEl.focus();
+      return;
+    }
+
+    resetResults();
+    setScanning(true);
+    statusText.textContent = "Ansluter…";
+    const controller = new AbortController();
+    state.controller = controller;
+
+    try {
+      const response = await fetch("/api/scan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Scanner-Token": TOKEN,
+        },
+        body: JSON.stringify({ targets, options: readOptions() }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `HTTP ${response.status}`);
+      }
+      if (!response.body) throw new Error("Webbläsaren stöder inte strömmande svar.");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newline;
+        while ((newline = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          if (!line) continue;
+          try {
+            handleEvent(JSON.parse(line));
+          } catch (_) {
+            // Ignore a partial or malformed line; the next line can still be valid.
+          }
+        }
+      }
+      if (buffer.trim()) {
+        try { handleEvent(JSON.parse(buffer.trim())); } catch (_) {}
+      }
+    } catch (error) {
+      if (error.name === "AbortError") {
+        statusText.textContent = `Avbruten – ${state.results.length} resultat`;
+        toast("Skanningen avbröts.");
+      } else {
+        statusText.textContent = "Fel: " + error.message;
+        toast("Fel: " + error.message, true);
+      }
+    } finally {
+      state.controller = null;
+      setScanning(false);
+      if (statusText.textContent.startsWith("Skannar") || statusText.textContent === "Ansluter…") {
+        statusText.textContent = `Klart – ${state.results.length} resultat`;
+      }
+    }
+  }
+
+  function cancelScan() {
+    if (state.controller) state.controller.abort();
+  }
+
+  function download(filename, content, type) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  function timestamp() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  }
+
+  function csvEscape(value) {
+    const text = value == null ? "" : String(value);
+    return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function exportCSV() {
+    if (state.results.length === 0) return toast("Inga resultat att exportera.", true);
+    const headers = [
+      "Webbplats", "Slutlig URL", "HTTP-status", "PHP", "PHP-version", "Versionkälla",
+      "Bedömning", "Allvarlighet", "Rättad version", "Server", "X-Powered-By", "Applikation",
+      "PHP-länkar", "Svarstid (ms)", "Detaljer", "Bevis", "Fel", "Kontrollerad"
+    ];
+    const rows = sortedResults().map((r) => [
+      r.input, r.finalUrl, r.statusCode, r.phpDetected ? "Ja" : "Nej", r.phpVersion, r.versionSource,
+      r.verdictLabel, r.verdict, r.fixedIn, r.server, r.poweredBy, r.app,
+      r.phpLinks, r.elapsedMs, r.detail, (r.evidence || []).join(" | "), r.error, r.checkedAt
+    ]);
+    const csv = "\uFEFF" + [headers, ...rows].map((row) => row.map(csvEscape).join(";")).join("\r\n") + "\r\n";
+    download(`php2shell-resultat-${timestamp()}.csv`, csv, "text/csv;charset=utf-8");
+    toast(`Exporterade ${rows.length} resultat till CSV.`);
+  }
+
+  function exportJSON() {
+    if (state.results.length === 0) return toast("Inga resultat att exportera.", true);
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      scanner: "PHP2Shell Checker",
+      version: $("versionPill").textContent.replace(/^v/, ""),
+      cves: ["CVE-2026-109618", "CVE-2026-109619"],
+      summary: state.results.reduce((acc, r) => {
+        acc[r.verdict] = (acc[r.verdict] || 0) + 1;
+        return acc;
+      }, {}),
+      results: sortedResults(),
+    };
+    download(`php2shell-resultat-${timestamp()}.json`, JSON.stringify(payload, null, 2), "application/json");
+    toast(`Exporterade ${state.results.length} resultat till JSON.`);
+  }
+
+  async function shutdownScanner() {
+    if (!confirm("Stänga av PHP2Shell Checker? En pågående skanning avbryts.")) return;
+    if (state.controller) state.controller.abort();
+    try {
+      await fetch("/api/shutdown", {
+        method: "POST",
+        headers: { "X-Scanner-Token": TOKEN },
+      });
+    } catch (_) {}
+    document.body.innerHTML = `
+      <div style="min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center">
+        <div>
+          <div style="font-size:34px;margin-bottom:10px">■</div>
+          <h1 style="margin:0 0 8px">PHP2Shell Checker är avstängd</h1>
+          <p style="color:#91a6c4;margin:0">Du kan stänga den här fliken.</p>
+        </div>
+      </div>`;
+  }
+
+  async function loadFile(file) {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast("Filen är för stor (max 5 MB).", true);
+      return;
+    }
+    const text = await file.text();
+    const existing = targetsEl.value.trim();
+    targetsEl.value = (existing ? existing + "\n" : "") + text;
+    updateTargetCount();
+    toast(`Laddade ${file.name}`);
+  }
+
+  function setFilter(value) {
+    state.filter = value;
+    filterEl.value = value;
+    renderAll();
+  }
+
+  // Event wiring
+  targetsEl.addEventListener("input", updateTargetCount);
+  $("pickFile").addEventListener("click", () => $("fileInput").click());
+  $("fileInput").addEventListener("change", async (event) => {
+    await loadFile(event.target.files[0]);
+    event.target.value = "";
+  });
+  $("clearTargets").addEventListener("click", () => {
+    targetsEl.value = "";
+    updateTargetCount();
+    targetsEl.focus();
+  });
+  scanBtn.addEventListener("click", startScan);
+  cancelBtn.addEventListener("click", cancelScan);
+
+  const dropZone = $("dropZone");
+  ["dragenter", "dragover"].forEach((name) => {
+    dropZone.addEventListener(name, (event) => {
+      event.preventDefault();
+      dropZone.classList.add("drag");
+    });
+  });
+  ["dragleave", "drop"].forEach((name) => {
+    dropZone.addEventListener(name, (event) => {
+      event.preventDefault();
+      dropZone.classList.remove("drag");
+    });
+  });
+  dropZone.addEventListener("drop", async (event) => {
+    const file = event.dataTransfer.files && event.dataTransfer.files[0];
+    if (file) await loadFile(file);
+  });
+
+  searchEl.addEventListener("input", () => {
+    state.query = searchEl.value.trim().toLowerCase();
+    renderAll();
+  });
+  filterEl.addEventListener("change", () => setFilter(filterEl.value));
+  sortEl.addEventListener("change", () => {
+    state.sort = sortEl.value;
+    renderAll();
+  });
+  document.querySelectorAll(".stat").forEach((stat) => {
+    const activate = () => setFilter(stat.dataset.filter || "all");
+    stat.addEventListener("click", activate);
+    stat.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        activate();
+      }
+    });
+  });
+
+  $("exportCsv").addEventListener("click", exportCSV);
+  $("exportJson").addEventListener("click", exportJSON);
+  $("shutdownBtn").addEventListener("click", shutdownScanner);
+
+  OPTION_IDS.forEach((id) => {
+    const el = $(id);
+    el.addEventListener("change", saveOptions);
+    el.addEventListener("input", saveOptions);
+  });
+
+  loadOptions();
+  updateTargetCount();
+  updateStats();
+  fetch("/api/health").then((response) => response.json()).then((data) => {
+    if (data.version) $("versionPill").textContent = "v" + data.version;
+  }).catch(() => {});
+})();
+</script>
+</body>
+</html>

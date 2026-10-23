@@ -1,0 +1,2 @@
+d4cb007f2e68e68f1919feb9e91ee6f9b25dd15dcf24a0e0c8082dadbe422247  PHP2Shell-Checker-Linux-x64
+cd2ec014ae6e2abcefb143b3b0253971856f8897a1d09b498a777e69a1ffc2ac  PHP2Shell-Checker-Windows-x64.exe
