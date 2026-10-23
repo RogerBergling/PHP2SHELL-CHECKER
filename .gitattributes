@@ -1,0 +1,4 @@
+# Körbara filer och arkiv får aldrig radbrytningskonverteras av Git.
+*.exe -text
+*.zip -text
+release/PHP2Shell-Checker-Linux-x64 -text

@@ -5,29 +5,45 @@ Defensiv kontroll av PHP och PHP2Shell (CVE-2026-109618, CVE-2026-109619).
 
 Windows
 -------
-Dubbelklicka på: PHP2Shell-Checker-Windows-x64.exe
-Ett konsolfönster öppnas och webbläsaren startar automatiskt.
-Windows SmartScreen kan varna eftersom filen inte är koddignerad.
-Välj "Mer information" -> "Kör ändå" om du litar på filen.
+1. Extrahera ZIP-filen med "Extrahera alla..." och kor sedan
+   PHP2Shell-Checker-Windows-x64.exe fran den extraherade mappen.
+   Kor inte filen direkt inifran ZIP-filen.
+2. Ett konsolfonster oppnas och webblasaren startar automatiskt.
+3. Windows SmartScreen kan varna eftersom filen inte ar koddignerad.
+   Valj "Mer information" -> "Kor anda" om du litar pa filen.
+
+Om Windows sager att filen ar skadad
+-------------------------------------
+- Kontrollera SHA-256 i PowerShell:
+    Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
+  Jamfor med SHA256SUMS.txt. Stammer det inte, ladda ner igen.
+- EXE-filen ska vara cirka 7,8 MB. Ar den bara nagra kilobyte har du
+  sparat en HTML-sida i stallet for programmet.
+- Avblockera filen: hogerklicka -> Egenskaper -> Avblockera, eller:
+    Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
+- Kor fran en lokal mapp, inte fran ZIP, OneDrive eller natverksenhet.
+- Kontrollera Smart App Control / S-lage i Windows-sakerhet.
+- Testa: .\PHP2Shell-Checker-Windows-x64.exe --version
 
 Linux
 -----
 chmod +x PHP2Shell-Checker-Linux-x64
 ./PHP2Shell-Checker-Linux-x64
 
-Webbläsaren startar automatiskt. Om inte, öppna adressen som skrivs ut.
-Använd --no-browser för att bara starta den lokala servern.
+Webblasaren startar automatiskt. Om inte, oppna adressen som skrivs ut.
+Anvand --no-browser for att bara starta den lokala servern.
 
-Stäng av
+Stang av
 --------
-Använd knappen "Stäng av" i gränssnittet, stäng konsolfönstret
+Anvand knappen "Stang av" i granssnittet, stang konsolfonstret
 eller tryck Ctrl+C i terminalen.
 
 Kontrollsummor
 --------------
-SHA256SUMS.txt innehåller kontrollsummor för båda filerna.
+SHA256SUMS.txt innehaller kontrollsummor for Linux-filen, Windows-filen
+och Windows-ZIP-filen.
 
 Viktigt
 -------
-Använd endast på system som du äger eller har tillstånd att testa.
-Skannern exploaterar inte sårbarheten; den gör vanliga GET-förfrågningar.
+Anvand endast pa system som du ager eller har tillstand att testa.
+Skannern exploaterar inte sarbarheten; den gor vanliga GET-forfragningar.

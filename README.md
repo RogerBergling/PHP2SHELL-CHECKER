@@ -2,11 +2,12 @@
 
 En snabb, defensiv skanner med grafiskt gränssnitt för att kontrollera om en webbplats använder PHP och om PHP-versionen påverkas av **PHP2Shell** (CVE-2026-109618 och CVE-2026-109619).
 
-Skannern finns som två fristående filer:
+Skannern finns som fristående filer:
 
 | Plattform | Fil |
 | --- | --- |
-| Windows 64-bit | [`release/PHP2Shell-Checker-Windows-x64.exe`](release/PHP2Shell-Checker-Windows-x64.exe) |
+| Windows 64-bit (rekommenderas) | [`release/PHP2Shell-Checker-Windows-x64.zip`](release/PHP2Shell-Checker-Windows-x64.zip) |
+| Windows 64-bit (endast programmet) | [`release/PHP2Shell-Checker-Windows-x64.exe`](release/PHP2Shell-Checker-Windows-x64.exe) |
 | Linux 64-bit | [`release/PHP2Shell-Checker-Linux-x64`](release/PHP2Shell-Checker-Linux-x64) |
 
 Ingen Python-, Java- eller Go-installation behövs för att köra filerna.
@@ -15,12 +16,38 @@ Ingen Python-, Java- eller Go-installation behövs för att köra filerna.
 
 ### Windows
 
-1. Dubbelklicka på `release/PHP2Shell-Checker-Windows-x64.exe`.
-2. Ett konsolfönster öppnas och webbläsaren startar gränssnittet automatiskt.
-3. Om webbläsaren inte öppnas: öppna adressen som står i konsolfönstret.
-4. Stäng av med knappen **Stäng av** i gränssnittet eller genom att stänga konsolfönstret.
+1. Ladda ner `release/PHP2Shell-Checker-Windows-x64.zip`.
+2. Högerklicka på ZIP-filen och välj **Extrahera alla…**. Kör sedan `.exe`-filen från den extraherade mappen – inte direkt inifrån ZIP-filen.
+3. Ett konsolfönster öppnas och webbläsaren startar gränssnittet automatiskt.
+4. Om webbläsaren inte öppnas: öppna adressen som står i konsolfönstret.
+5. Stäng av med knappen **Stäng av** i gränssnittet eller genom att stänga konsolfönstret.
 
-> Windows SmartScreen kan varna eftersom filen inte är koddignerad. Välj **Mer information → Kör ändå** om du själv har byggt eller hämtat filen från en betrodd källa.
+> Windows SmartScreen kan varna eftersom filen inte är koddignerad. Välj **Mer information → Kör ändå** om du själv har byggt eller hämtat filen från en betrodd källa. Samma gäller om Windows Defender eller ett annat antivirusprogram flaggar filen – lägg då till den som undantag endast om du litar på källan.
+
+#### Om Windows säger att filen är skadad
+
+Filen i `release/` är en giltig Windows x64-binär. Kontrollera i denna ordning:
+
+1. **Jämför kontrollsumman.** Öppna PowerShell i mappen och kör:
+   ```powershell
+   Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
+   ```
+   Hashvärdet ska stå i `release/SHA256SUMS.txt`. Stämmer det inte är filen ofullständigt nedladdad – ladda ner ZIP-filen igen.
+2. **Kontrollera filstorleken.** `.exe`-filen ska vara cirka **7,8 MB**. Är den bara några kilobyte har du sparat en HTML-sida eller en länk i stället för filen.
+3. **Avblockera filen.** Högerklicka på filen → **Egenskaper** → kryssa i **Avblockera** (Unblock) → **OK**. I PowerShell:
+   ```powershell
+   Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
+   ```
+4. **Kör från en lokal mapp.** Starta inte filen direkt från ZIP-filen, OneDrive (filer på begäran), en nätverksenhet eller ett USB-minne som kan vara skadat. Extrahera till till exempel `C:\Temp\PHP2ShellChecker\`.
+5. **Smart App Control / S-läge.** Windows 11 kan blockera osignerade program. Kontrollera **Windows-säkerhet → App- och webbläsarkontroll**. Smart App Control kan stängas av om du litar på filen (det går inte att slå på igen utan ominstallation). Windows i **S-läge** kan bara köra program från Microsoft Store.
+6. **ARM64-dator.** Windows 11 ARM kan köra x64-program via emulering. Fungerar det inte, bygg en egen ARM64-version på datorn:
+   ```bat
+   set CGO_ENABLED=0
+   set GOOS=windows
+   set GOARCH=arm64
+   go build -trimpath -buildvcs=false -ldflags "-s -w" -o PHP2Shell-Checker-Windows-arm64.exe .
+   ```
+7. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version` i PowerShell. Skrivs `PHP2Shell Checker 1.0.0` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
 
 ### Linux
 
@@ -122,17 +149,19 @@ Kräver [Go](https://go.dev/) 1.27 eller senare.
 ./build.sh
 ```
 
-Skriptet bygger båda filerna till `release/` och skriver `SHA256SUMS.txt`. På Windows kan `build-windows.bat` användas för att bygga Windowsversionen.
+Skriptet bygger båda filerna till `release/`, paketerar Windowsversionen som ZIP och skriver `SHA256SUMS.txt`. På Windows kan `build-windows.bat` användas för att bygga och paketera Windowsversionen.
 
 Manuell build:
 
 ```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" \
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags "-s -w" \
   -o release/PHP2Shell-Checker-Linux-x64 .
 
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" \
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags "-s -w" \
   -o release/PHP2Shell-Checker-Windows-x64.exe .
 ```
+
+`-buildvcs=false` gör bygget reproducerbart: samma källkod och samma Go-version ger alltid samma binär och samma SHA-256, oavsett git-status.
 
 Kör tester:
 
@@ -149,7 +178,7 @@ go test ./...
 ├── scanner.go              # Icke-invasiv PHP/versionsdetektering
 ├── version.go              # Jämförelse mot rättade PHP-versioner
 ├── web/index.html          # Grafiskt gränssnitt (HTML/CSS/JS)
-├── build.sh                # Bygger Linux + Windows
+├── build.sh                # Bygger Linux + Windows och ZIP
 ├── build-windows.bat       # Bygger Windows lokalt
 ├── examples/               # Exempellista
 └── release/                # Färdiga, startbara filer
