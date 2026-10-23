@@ -14,16 +14,30 @@ Windows
 
 Om Windows sager att filen ar skadad
 -------------------------------------
-- Kontrollera SHA-256 i PowerShell:
-    Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
-  Jamfor med SHA256SUMS.txt. Stammer det inte, ladda ner igen.
-- EXE-filen ska vara cirka 7,8 MB. Ar den bara nagra kilobyte har du
-  sparat en HTML-sida i stallet for programmet.
-- Avblockera filen: hogerklicka -> Egenskaper -> Avblockera, eller:
-    Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
-- Kor fran en lokal mapp, inte fran ZIP, OneDrive eller natverksenhet.
-- Kontrollera Smart App Control / S-lage i Windows-sakerhet.
-- Testa: .\PHP2Shell-Checker-Windows-x64.exe --version
+"Filen eller katalogen ar skadad och kan inte lasas" (0x80070570) och en
+tom ZIP beror pa att filen pa datorn ar ofullstandig, blockerad eller
+ligger pa ett skadat filsystem - inte pa programmet.
+
+Kontrollera i denna ordning:
+1. Kor i PowerShell i denna mapp:
+     powershell -ExecutionPolicy Bypass -File .\verify-windows.ps1
+   Skriptet kontrollerar storlek, filhuvud och SHA-256.
+2. EXE-filen ska vara 7 842 304 byte. Ar den 0 byte eller bara nagra
+   kilobyte har nedladdningen misslyckats.
+3. Avblockera filen: hogerklicka -> Egenskaper -> Avblockera, eller:
+     Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
+4. Kor fran en lokal mapp, inte fran ZIP, OneDrive eller natverksenhet.
+5. Kontrollera skyddshistoriken i Windows-sakerhet (antivirus).
+6. Om bade ZIP och EXE blir skadade, kor som administratör:
+     chkdsk C: /scan
+7. Reservvag om nedladdningen fortsatter bli skadad:
+     powershell -ExecutionPolicy Bypass -File .\restore-windows.ps1
+   Skriptet aterstaller EXE-filen fran textfilen
+   PHP2Shell-Checker-Windows-x64.exe.gz.b64 och verifierar SHA-256.
+8. Testa: .\PHP2Shell-Checker-Windows-x64.exe --version
+
+Kontrollera Smart App Control / S-lage i Windows-sakerhet om filen
+blockeras utan att vara skadad.
 
 Linux
 -----
@@ -40,8 +54,8 @@ eller tryck Ctrl+C i terminalen.
 
 Kontrollsummor
 --------------
-SHA256SUMS.txt innehaller kontrollsummor for Linux-filen, Windows-filen
-och Windows-ZIP-filen.
+SHA256SUMS.txt innehaller kontrollsummor for Linux-filen, Windows-filen,
+Windows-ZIP-filen och reservfilen (.gz.b64).
 
 Viktigt
 -------

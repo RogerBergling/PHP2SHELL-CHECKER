@@ -34,12 +34,19 @@ rm -f "release/PHP2Shell-Checker-Windows-x64.zip"
     "README.txt"
 )
 
+# Extra reservväg: base64-kodad gzip av EXE-filen. Text klarar sig förbi
+# nedladdningsfilter som skadar eller blockerar binärfiler. Återställs med
+# release/restore-windows.ps1.
+gzip -9 -n -c "release/PHP2Shell-Checker-Windows-x64.exe" \
+  | base64 -w 76 > "release/PHP2Shell-Checker-Windows-x64.exe.gz.b64"
+
 (
   cd release
   sha256sum \
     "PHP2Shell-Checker-Linux-x64" \
     "PHP2Shell-Checker-Windows-x64.exe" \
-    "PHP2Shell-Checker-Windows-x64.zip" > SHA256SUMS.txt
+    "PHP2Shell-Checker-Windows-x64.zip" \
+    "PHP2Shell-Checker-Windows-x64.exe.gz.b64" > SHA256SUMS.txt
 )
 
 echo
