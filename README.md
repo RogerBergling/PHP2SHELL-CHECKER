@@ -1,6 +1,6 @@
 # PHP2Shell Checker
 
-En snabb, defensiv skanner med grafiskt gränssnitt för att kontrollera om en webbplats använder PHP och om PHP-versionen påverkas av **PHP2Shell** (CVE-2026-109618 och CVE-2026-109619).
+En snabb, defensiv skanner med grafiskt gränssnitt för att kontrollera om en webbplats använder PHP och om PHP-versionen påverkas av **PHP2Shell** (CVE-2026-109618 och CVE-2026-109619). Skannern flaggar även **CVE-2026-115560** (`session.upload_progress`) som en separat rekommendation.
 
 Skannern finns som fristående filer:
 
@@ -40,7 +40,7 @@ Kontrollera i denna ordning:
    Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
    ```
    Hashvärdet ska stå i `release/SHA256SUMS.txt`. Stämmer det inte är filen ofullständigt nedladdad – ladda ner igen.
-3. **Kontrollera filstorleken.** `.exe`-filen ska vara **7 842 304 byte** (cirka 7,8 MB). Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
+3. **Kontrollera filstorleken.** `.exe`-filen ska vara **7 850 496 byte** (cirka 7,5 MiB) i version 1.1.0. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
 4. **Avblockera filen.** Högerklicka → **Egenskaper** → kryssa i **Avblockera** (Unblock) → **OK**, eller:
    ```powershell
    Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
@@ -64,7 +64,7 @@ Kontrollera i denna ordning:
    cd PHP2SHELL-CHECKER
    .\build-windows.bat
    ```
-10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.0.0` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
+10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.1.0` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
 
 > **Smart App Control / S-läge:** Windows 11 kan blockera osignerade program. Kontrollera **Windows-säkerhet → App- och webbläsarkontroll**. Smart App Control kan stängas av om du litar på filen (det går inte att slå på igen utan ominstallation). Windows i **S-läge** kan bara köra program från Microsoft Store.
 
@@ -116,7 +116,7 @@ Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `ht
 | Följ omdirigeringar | På | Följer upp till 6 omdirigeringar. |
 | Utökad kontroll | På | Gör upp till två extra GET-anrop per sajt: `index.php` och en slumpmässig `.php`-sökväg i samma katalog. |
 | Ignorera TLS-fel | Av | Användbart för servrar med trasiga eller självsignerade certifikat. |
-| User-Agent | `PHP2ShellChecker/1.0 …` | Kan ändras om en sajt blockerar skannern. |
+| User-Agent | `PHP2ShellChecker/1.1 …` | Kan ändras om en sajt blockerar skannern. |
 
 ## Bedömningar
 
@@ -139,6 +139,25 @@ PHP2Shell påverkar PHP 5.4 och senare. Följande versioner innehåller rättels
 - PHP **8.2.35** eller senare
 - PHP 8.1 och äldre: end-of-life, kräver leverantörsbackport
 
+### CVE-2026-115560 och session.upload_progress
+
+Två dagar efter PHP2Shell-fixarna varnade PHP för ytterligare ett sätt att köra kod: **CVE-2026-115560**. Det påverkar bara webbappar som är konfigurerade på ett ovanligt sätt, och PHP bedömer risken som låg. Ingen brådskande fix utfärdas; rättelsen väntas i nästa ordinarie PHP-utgåva.
+
+Rekommendationen är att stänga av funktionen tills dess:
+
+```ini
+session.upload_progress.enabled = Off
+```
+
+Starta om PHP-FPM/Apache efter ändringen. Kontrollen är separat från PHP2Shell-bedömningen: en sajt kan vara **PHP – åtgärdad** för PHP2Shell och ändå få en påminnelse om `session.upload_progress`.
+
+Eftersom `php.ini` inte kan läsas över HTTP är kontrollen en heuristik:
+
+- **Kontrollera konfigurationen** visas när PHP upptäcks.
+- **Möjligen påverkad – kontrollera** visas när sajten dessutom använder en PHP-sessionscookie och har filuppladdning i HTML-svaret.
+
+Skannern skickar inga uppladdningar och ändrar inget. Verifiera alltid `session.upload_progress.enabled` på servern.
+
 ## Hur kontrollen går till
 
 Skannern är **icke-invasiv** och skickar inga exploit-payloads. Den gör vanliga `GET`-förfrågningar och letar efter PHP-indikatorer:
@@ -149,6 +168,7 @@ Skannern är **icke-invasiv** och skickar inga exploit-payloads. Den gör vanlig
 - PHP-felmeddelanden i svaret.
 - PHP-version i HTML (till exempel phpinfo eller `Powered by PHP`).
 - Kända PHP-applikationer som WordPress, Drupal, Joomla, Magento, Laravel och Nextcloud.
+- PHP-sessionscookies och filuppladdningsformulär, som underlag för CVE-2026-115560-rekommendationen.
 - Med **Utökad kontroll** även `index.php` och en slumpmässig `.php`-sökväg i samma katalog.
 
 Om en PHP-version hittas jämförs den med de rättade versionerna ovan. Skannern försöker aldrig utnyttja sårbarheten, ladda upp filer eller ändra något på servern.
@@ -176,7 +196,7 @@ Kräver [Go](https://go.dev/) 1.27 eller senare.
 ./build.sh
 ```
 
-Skriptet bygger båda filerna till `release/`, paketerar Windowsversionen som ZIP och skriver `SHA256SUMS.txt`. På Windows kan `build-windows.bat` användas för att bygga och paketera Windowsversionen.
+Skriptet bygger båda filerna till `release/`, paketerar Windowsversionen som ZIP, skapar en base64-kodad reservfil och skriver `SHA256SUMS.txt`. På Windows kan `build-windows.bat` användas för att bygga och paketera Windowsversionen.
 
 Manuell build:
 
@@ -203,6 +223,7 @@ go test ./...
 ├── main.go                 # Startar lokal server och webbläsare
 ├── server.go               # HTTP-server, token-skydd och streaming-API
 ├── scanner.go              # Icke-invasiv PHP/versionsdetektering
+├── advisory.go             # CVE-2026-115560 och session.upload_progress
 ├── version.go              # Jämförelse mot rättade PHP-versioner
 ├── web/index.html          # Grafiskt gränssnitt (HTML/CSS/JS)
 ├── build.sh                # Bygger Linux + Windows och ZIP

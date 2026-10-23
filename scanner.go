@@ -56,29 +56,30 @@ func (o *ScanOptions) applyDefaults() {
 		o.DelayMS = 10000
 	}
 	if strings.TrimSpace(o.UserAgent) == "" {
-		o.UserAgent = "PHP2ShellChecker/1.0 (defensive vulnerability check)"
+		o.UserAgent = "PHP2ShellChecker/1.1 (defensive vulnerability check)"
 	}
 }
 
 type Result struct {
-	Input         string   `json:"input"`
-	FinalURL      string   `json:"finalUrl,omitempty"`
-	StatusCode    int      `json:"statusCode,omitempty"`
-	ElapsedMS     int64    `json:"elapsedMs"`
-	PHPDetected   bool     `json:"phpDetected"`
-	PHPVersion    string   `json:"phpVersion,omitempty"`
-	VersionSource string   `json:"versionSource,omitempty"`
-	Verdict       string   `json:"verdict"`
-	VerdictLabel  string   `json:"verdictLabel"`
-	FixedIn       string   `json:"fixedIn,omitempty"`
-	Detail        string   `json:"detail,omitempty"`
-	Server        string   `json:"server,omitempty"`
-	PoweredBy     string   `json:"poweredBy,omitempty"`
-	App           string   `json:"app,omitempty"`
-	PHPLinks      int      `json:"phpLinks,omitempty"`
-	Evidence      []string `json:"evidence,omitempty"`
-	Error         string   `json:"error,omitempty"`
-	CheckedAt     string   `json:"checkedAt"`
+	Input         string     `json:"input"`
+	FinalURL      string     `json:"finalUrl,omitempty"`
+	StatusCode    int        `json:"statusCode,omitempty"`
+	ElapsedMS     int64      `json:"elapsedMs"`
+	PHPDetected   bool       `json:"phpDetected"`
+	PHPVersion    string     `json:"phpVersion,omitempty"`
+	VersionSource string     `json:"versionSource,omitempty"`
+	Verdict       string     `json:"verdict"`
+	VerdictLabel  string     `json:"verdictLabel"`
+	FixedIn       string     `json:"fixedIn,omitempty"`
+	Detail        string     `json:"detail,omitempty"`
+	Server        string     `json:"server,omitempty"`
+	PoweredBy     string     `json:"poweredBy,omitempty"`
+	App           string     `json:"app,omitempty"`
+	PHPLinks      int        `json:"phpLinks,omitempty"`
+	Evidence      []string   `json:"evidence,omitempty"`
+	Advisories    []Advisory `json:"advisories,omitempty"`
+	Error         string     `json:"error,omitempty"`
+	CheckedAt     string     `json:"checkedAt"`
 }
 
 type pageInfo struct {
@@ -89,14 +90,16 @@ type pageInfo struct {
 }
 
 type detection struct {
-	php        bool
-	version    string
-	versionSrc string
-	evidence   []string
-	app        string
-	phpLinks   int
-	server     string
-	poweredBy  string
+	php           bool
+	version       string
+	versionSrc    string
+	evidence      []string
+	app           string
+	phpLinks      int
+	server        string
+	poweredBy     string
+	sessionCookie bool
+	uploadForm    bool
 }
 
 type hostLimiter struct {
@@ -253,6 +256,9 @@ func (s *Scanner) Scan(ctx context.Context, raw string) (res Result) {
 	res.VerdictLabel = assessment.Label
 	res.FixedIn = assessment.FixedIn
 	res.Detail = assessment.Detail
+	if det.php {
+		res.Advisories = append(res.Advisories, assessUploadProgress(det))
+	}
 	if res.Verdict == "vulnerable" {
 		res.Evidence = append(res.Evidence, "PHP2Shell: CVE-2026-109618 och CVE-2026-109619")
 	}
@@ -352,6 +358,8 @@ var (
 	phpGeneratorRe     = regexp.MustCompile(`(?is)<meta[^>]+name\s*=\s*["']generator["'][^>]+content\s*=\s*["'][^"']*PHP[^"']*?(\d+\.\d+(?:\.\d+)?)`)
 	phpLinkRe          = regexp.MustCompile(`(?i)\.php(?:["'?#/&;>)\s]|$)`)
 	phpErrorRe         = regexp.MustCompile(`(?is)(?:Fatal error|Parse error|Uncaught (?:Error|Exception)|Warning|Notice|Deprecated)\s*:.{0,200}?\bon line\s+\d+`)
+	uploadFormRe       = regexp.MustCompile(`(?is)<form\b[^>]*\benctype\s*=\s*["']?\s*multipart/form-data`)
+	fileInputRe        = regexp.MustCompile(`(?is)<input\b[^>]*\btype\s*=\s*["']?\s*file\b`)
 )
 
 var phpSessionCookies = []string{
@@ -408,6 +416,7 @@ func analyzePage(p *pageInfo) detection {
 		for _, needle := range phpSessionCookies {
 			if strings.Contains(name, needle) {
 				d.php = true
+				d.sessionCookie = true
 				d.evidence = appendUnique(d.evidence, "PHP-relaterad cookie: "+strings.SplitN(setCookie, "=", 2)[0])
 				break
 			}
@@ -416,6 +425,11 @@ func analyzePage(p *pageInfo) detection {
 
 	body := string(p.body)
 	lower := strings.ToLower(body)
+
+	if uploadFormRe.MatchString(body) || fileInputRe.MatchString(body) {
+		d.uploadForm = true
+		d.evidence = appendUnique(d.evidence, "Filuppladdning identifierad i HTML-svaret")
+	}
 
 	if n := len(phpLinkRe.FindAllStringIndex(body, 2000)); n > 0 {
 		d.php = true
@@ -503,6 +517,8 @@ func isCDN(headers http.Header) string {
 }
 
 func mergeDetection(dst *detection, src detection) {
+	dst.sessionCookie = dst.sessionCookie || src.sessionCookie
+	dst.uploadForm = dst.uploadForm || src.uploadForm
 	if !src.php {
 		return
 	}

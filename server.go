@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const appVersion = "1.0.0"
+const appVersion = "1.1.0"
 
 //go:embed web/index.html
 var indexHTML string
@@ -112,7 +112,15 @@ func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"version":       a.version,
 		"fixedVersions": fixedVersions,
-		"cves":          []string{"CVE-2026-109618", "CVE-2026-109619"},
+		"cves":          []string{"CVE-2026-109618", "CVE-2026-109619", cveUploadProgress},
+		"advisories": []map[string]string{
+			{
+				"cve":            cveUploadProgress,
+				"title":          "session.upload_progress",
+				"severity":       "low",
+				"recommendation": uploadProgressDirective + " = Off",
+			},
+		},
 	})
 }
 

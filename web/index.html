@@ -209,6 +209,7 @@
     background: rgba(90, 169, 255, .10); border: 1px solid rgba(90, 169, 255, .22);
     color: #9ecbff; font-size: 10px;
   }
+  .tag.warn { color: #ffd27a; background: rgba(255, 176, 32, .1); border-color: rgba(255, 176, 32, .28); }
   code { font-family: var(--mono); font-size: 11.5px; color: #cfe2ff; background: rgba(90, 169, 255, .08); padding: 1px 5px; border-radius: 5px; }
   .badge {
     display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px;
@@ -230,6 +231,16 @@
   .detail-grid span { display: block; color: var(--muted-2); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
   .detail-grid strong { display: block; font-weight: 500; font-size: 11.8px; word-break: break-all; margin-top: 1px; }
   .detail-note { margin-top: 10px; color: #c3d3e8; font-size: 12px; }
+  .advisory {
+    margin-top: 12px; padding: 10px 12px; border-radius: 9px;
+    border: 1px solid rgba(255, 176, 32, .24); background: rgba(255, 176, 32, .05);
+  }
+  .advisory.possible { border-color: rgba(255, 176, 32, .5); background: rgba(255, 176, 32, .1); }
+  .advisory h4 { margin: 0 0 5px; font-size: 12px; color: #ffd27a; }
+  .advisory p { margin: 0 0 5px; color: #c3d3e8; font-size: 11.8px; }
+  .advisory p:last-child { margin-bottom: 0; }
+  .advisory ul { margin: 4px 0 0; padding-left: 17px; color: var(--muted); font-size: 11.5px; }
+  .advisory .rec { color: #d7e6ff; }
   .evidence { margin-top: 10px; }
   .evidence h4 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted-2); }
   .evidence ul { margin: 0; padding-left: 17px; color: var(--muted); font-size: 11.5px; }
@@ -277,7 +288,7 @@
     <div class="logo" aria-hidden="true">P2S</div>
     <div>
       <h1>PHP2Shell Checker</h1>
-      <p class="tagline">Defensiv kontroll av PHP och PHP2Shell (CVE-2026-109618 &amp; CVE-2026-109619)</p>
+      <p class="tagline">Defensiv kontroll av PHP, PHP2Shell (CVE-2026-109618 &amp; CVE-2026-109619) och CVE-2026-115560</p>
     </div>
   </div>
   <div class="top-actions">
@@ -325,7 +336,7 @@
       <details class="advanced">
         <summary>Avancerat</summary>
         <label>User-Agent
-          <input type="text" id="userAgent" value="PHP2ShellChecker/1.0 (defensive vulnerability check)">
+          <input type="text" id="userAgent" value="PHP2ShellChecker/1.1 (defensive vulnerability check)">
         </label>
       </details>
     </details>
@@ -420,6 +431,10 @@
     <div>
       <h3>Begränsningar</h3>
       <p>En sajt kan vara PHP-baserad utan att avslöja versionen. <strong>PHP – okänd version</strong> betyder att du måste kontrollera servern manuellt. CDN, WAF och anpassade fel sidor kan dölja svaren.</p>
+    </div>
+    <div>
+      <h3>CVE-2026-115560</h3>
+      <p>PHP bedömer risken som låg och har ingen brådskande fix. Rekommendationen är att stänga av <code>session.upload_progress.enabled</code> i php.ini. Skannern markerar sajter som använder PHP-sessioner och filuppladdning, men kan inte läsa php.ini via HTTP – verifiera inställningen på servern.</p>
     </div>
     <div>
       <h3>Läs mer</h3>
@@ -523,7 +538,7 @@
       followRedirects: $("followRedirects").checked,
       deepCheck: $("deepCheck").checked,
       insecureTls: $("insecureTls").checked,
-      userAgent: $("userAgent").value.trim() || "PHP2ShellChecker/1.0 (defensive vulnerability check)",
+      userAgent: $("userAgent").value.trim() || "PHP2ShellChecker/1.1 (defensive vulnerability check)",
     };
   }
 
@@ -569,7 +584,9 @@
     if (!state.query) return true;
     const haystack = [
       result.input, result.finalUrl, result.phpVersion, result.server, result.poweredBy,
-      result.app, result.verdictLabel, result.error, ...(result.evidence || [])
+      result.app, result.verdictLabel, result.error,
+      ...(result.evidence || []),
+      ...(result.advisories || []).flatMap((a) => [a.cve, a.title, a.label, a.detail, a.recommendation, ...(a.evidence || [])]),
     ].join(" ").toLowerCase();
     return haystack.includes(state.query);
   }
@@ -603,11 +620,20 @@
       ? `<div class="evidence"><h4>Bevis</h4><ul>${result.evidence.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul></div>`
       : "";
 
+    const advisories = (result.advisories || []).map((a) => `
+      <div class="advisory ${a.status === "possible" ? "possible" : ""}">
+        <h4>${escapeHTML(a.cve)} · ${escapeHTML(a.title)} – ${escapeHTML(a.label)}</h4>
+        ${a.detail ? `<p>${escapeHTML(a.detail)}</p>` : ""}
+        ${a.recommendation ? `<p class="rec"><strong>Rekommendation:</strong> ${escapeHTML(a.recommendation)}</p>` : ""}
+        ${(a.evidence || []).length ? `<ul>${a.evidence.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>` : ""}
+      </div>`).join("");
+
     return `
       <div class="detail-grid">
         ${fields.map(([label, value]) => `<div><span>${escapeHTML(label)}</span><strong>${escapeHTML(value)}</strong></div>`).join("")}
       </div>
       ${result.detail ? `<div class="detail-note">${escapeHTML(result.detail)}</div>` : ""}
+      ${advisories}
       ${evidence}
     `;
   }
@@ -620,6 +646,7 @@
         <div class="url">${escapeHTML(result.input)}</div>
         ${result.finalUrl && result.finalUrl !== result.input ? `<div class="final">${escapeHTML(result.finalUrl)}</div>` : ""}
         ${result.app ? `<span class="tag">${escapeHTML(result.app)}</span>` : ""}
+        ${(result.advisories || []).some((a) => a.status === "possible") ? `<span class="tag warn">CVE-2026-115560</span>` : ""}
       </td>
       <td>${result.statusCode || "–"}</td>
       <td><span class="dot ${result.phpDetected ? "yes" : "no"}"></span>${result.phpDetected ? "Ja" : "Nej"}</td>
@@ -840,12 +867,16 @@
     const headers = [
       "Webbplats", "Slutlig URL", "HTTP-status", "PHP", "PHP-version", "Versionkälla",
       "Bedömning", "Allvarlighet", "Rättad version", "Server", "X-Powered-By", "Applikation",
-      "PHP-länkar", "Svarstid (ms)", "Detaljer", "Bevis", "Fel", "Kontrollerad"
+      "PHP-länkar", "Svarstid (ms)", "Detaljer", "CVE-2026-115560", "Rekommendation (CVE-2026-115560)",
+      "Bevis", "Fel", "Kontrollerad"
     ];
     const rows = sortedResults().map((r) => [
       r.input, r.finalUrl, r.statusCode, r.phpDetected ? "Ja" : "Nej", r.phpVersion, r.versionSource,
       r.verdictLabel, r.verdict, r.fixedIn, r.server, r.poweredBy, r.app,
-      r.phpLinks, r.elapsedMs, r.detail, (r.evidence || []).join(" | "), r.error, r.checkedAt
+      r.phpLinks, r.elapsedMs, r.detail,
+      (r.advisories || []).map((a) => `${a.cve}: ${a.label}`).join(" | "),
+      (r.advisories || []).map((a) => a.recommendation).filter(Boolean).join(" | "),
+      (r.evidence || []).join(" | "), r.error, r.checkedAt
     ]);
     const csv = "\uFEFF" + [headers, ...rows].map((row) => row.map(csvEscape).join(";")).join("\r\n") + "\r\n";
     download(`php2shell-resultat-${timestamp()}.csv`, csv, "text/csv;charset=utf-8");
@@ -858,7 +889,7 @@
       generatedAt: new Date().toISOString(),
       scanner: "PHP2Shell Checker",
       version: $("versionPill").textContent.replace(/^v/, ""),
-      cves: ["CVE-2026-109618", "CVE-2026-109619"],
+      cves: ["CVE-2026-109618", "CVE-2026-109619", "CVE-2026-115560"],
       summary: state.results.reduce((acc, r) => {
         acc[r.verdict] = (acc[r.verdict] || 0) + 1;
         return acc;

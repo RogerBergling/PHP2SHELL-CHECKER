@@ -1,7 +1,8 @@
-PHP2Shell Checker 1.0.0
+PHP2Shell Checker 1.1.0
 =======================
 
-Defensiv kontroll av PHP och PHP2Shell (CVE-2026-109618, CVE-2026-109619).
+Defensiv kontroll av PHP och PHP2Shell (CVE-2026-109618, CVE-2026-109619)
+samt CVE-2026-115560 (session.upload_progress).
 
 Windows
 -------
@@ -22,8 +23,8 @@ Kontrollera i denna ordning:
 1. Kor i PowerShell i denna mapp:
      powershell -ExecutionPolicy Bypass -File .\verify-windows.ps1
    Skriptet kontrollerar storlek, filhuvud och SHA-256.
-2. EXE-filen ska vara 7 842 304 byte. Ar den 0 byte eller bara nagra
-   kilobyte har nedladdningen misslyckats.
+2. EXE-filen ska vara 7 850 496 byte (cirka 7,5 MiB) i version 1.1.0.
+   Ar den 0 byte eller bara nagra kilobyte har nedladdningen misslyckats.
 3. Avblockera filen: hogerklicka -> Egenskaper -> Avblockera, eller:
      Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
 4. Kor fran en lokal mapp, inte fran ZIP, OneDrive eller natverksenhet.
