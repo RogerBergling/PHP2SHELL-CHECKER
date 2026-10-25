@@ -102,7 +102,10 @@ Stäng av med **Stäng av** i gränssnittet eller `Ctrl+C` i terminalen.
 2. Eller klicka på **Ladda fil…** och välj en `.txt`/`.csv`-fil med en adress per rad. Du kan också släppa filen direkt i textrutan.
 3. Justera inställningarna vid behov och klicka på **Starta skanning**.
 4. Resultaten visas direkt allt eftersom skanningen pågår. Klicka på en rad för att se bevis, HTTP-huvuden, PHP-version och rekommendation.
-5. Exportera resultaten som **CSV** eller **JSON**.
+5. Markera raderna för de värdar du vill följa upp. Verktygsfältet **Valda värdar** blir då synligt.
+6. **Verifiera valda** gör om kontrollen för de markerade värdarna med nya GET-förfrågningar och uppdaterar bevisen (IP-adress, tidsstämpel och fingeravtryck).
+7. **Bevisrapport (HTML)** skapar en utskriftsvänlig rapport med sammanfattning, metod, fynd, rekommendationer och signaturfält. **Bevisrapport (JSON)** ger samma underlag i maskinläsbar form.
+8. Exportera alla resultat som **CSV** eller **JSON**.
 
 Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `https://` testas först med HTTPS och därefter med HTTP om HTTPS inte kan ansluta.
 
@@ -114,7 +117,7 @@ Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `ht
 | Samtidiga | 5 | Antal webbplatser som skannas parallellt. |
 | Fördröjning/värd | 250 ms | Minsta tid mellan anrop till samma värd. |
 | Följ omdirigeringar | På | Följer upp till 6 omdirigeringar. |
-| Utökad kontroll | På | Gör upp till två extra GET-anrop per sajt: `index.php` och en slumpmässig `.php`-sökväg i samma katalog. |
+| Utökad kontroll | På | Gör ett fåtal extra GET-anrop per sajt: `index.php`, `phpinfo.php`, `info.php` och `phpversion.php`. Stoppar så snart en version hittats. |
 | Ignorera TLS-fel | Av | Användbart för servrar med trasiga eller självsignerade certifikat. |
 | User-Agent | `PHP2ShellChecker/1.1 …` | Kan ändras om en sajt blockerar skannern. |
 
@@ -169,9 +172,20 @@ Skannern är **icke-invasiv** och skickar inga exploit-payloads. Den gör vanlig
 - PHP-version i HTML (till exempel phpinfo eller `Powered by PHP`).
 - Kända PHP-applikationer som WordPress, Drupal, Joomla, Magento, Laravel och Nextcloud.
 - PHP-sessionscookies och filuppladdningsformulär, som underlag för CVE-2026-115560-rekommendationen.
-- Med **Utökad kontroll** även `index.php` och en slumpmässig `.php`-sökväg i samma katalog.
+- Med **Utökad kontroll** även `index.php`, `phpinfo.php`, `info.php` och `phpversion.php` i samma katalog. Kontrollen stoppar så snart en version hittats.
 
 Om en PHP-version hittas jämförs den med de rättade versionerna ovan. Skannern försöker aldrig utnyttja sårbarheten, ladda upp filer eller ändra något på servern.
+
+## Bevis och rapportering
+
+Resultatlistan kan användas som underlag i en utredning eller för rapportering till säkerhetsledningen:
+
+- **Markera värdar** med kryssrutorna (eller kryssrutan i tabellhuvudet för alla synliga rader). Markeringen behålls när du filtrerar och sorterar.
+- **Verifiera valda** kör om den vanliga, icke-invasiva kontrollen för de markerade värdarna och ersätter raderna med färska bevis. Varje resultat innehåller då även vilken IP-adress som svarade, en SHA-256-fingeravtryck på HTTP-svarskroppen och ett urval av svarshuvuden.
+- **Bevisrapport (HTML)** genererar en fristående, utskriftsvänlig rapport med sammanfattning, metodbeskrivning, avgränsning, per-värd-fynd, rekommendationer och signaturfält. Öppna filen i en webbläsare och skriv ut eller spara som PDF.
+- **Bevisrapport (JSON)** ger samma urval i maskinläsbar form för ärendehantering eller vidare bearbetning.
+
+Rapporterna beskriver uttryckligen att kontrollen är icke-invasiv: inga exploit-payloads skickas, inga filer laddas upp och ingen åtkomst etableras. Ett fynd är en indikation på sårbar PHP-version, inte ett bevis på att sårbarheten är utnyttjad.
 
 ## Begränsningar
 

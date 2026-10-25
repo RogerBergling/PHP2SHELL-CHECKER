@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"path"
 	"regexp"
@@ -80,6 +82,11 @@ type Result struct {
 	Advisories    []Advisory `json:"advisories,omitempty"`
 	Error         string     `json:"error,omitempty"`
 	CheckedAt     string     `json:"checkedAt"`
+	// The fields below are optional evidence details. They are additive so
+	// older exports and the CSV/JSON consumers keep working unchanged.
+	RemoteIP        string            `json:"remoteIp,omitempty"`
+	BodySHA256      string            `json:"bodySha256,omitempty"`
+	ResponseHeaders map[string]string `json:"responseHeaders,omitempty"`
 }
 
 type pageInfo struct {
@@ -87,6 +94,8 @@ type pageInfo struct {
 	status  int
 	headers http.Header
 	body    []byte
+	remote  string
+	sha256  string
 }
 
 type detection struct {
@@ -221,6 +230,9 @@ func (s *Scanner) Scan(ctx context.Context, raw string) (res Result) {
 	res.StatusCode = page.status
 	res.Server = page.headers.Get("Server")
 	res.PoweredBy = page.headers.Get("X-Powered-By")
+	res.RemoteIP = page.remote
+	res.BodySHA256 = page.sha256
+	res.ResponseHeaders = evidenceHeaders(page.headers)
 
 	det := analyzePage(page)
 	if s.opts.DeepCheck && det.version == "" {
@@ -285,6 +297,18 @@ func (s *Scanner) fetch(ctx context.Context, target string) (*pageInfo, error) {
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "sv-SE,sv;q=0.9,en;q=0.7")
 
+	// Record the address that actually answered. Behind a CDN or load
+	// balancer this documents which endpoint the scanner talked to.
+	var remote string
+	trace := &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) {
+			if info.Conn != nil {
+				remote = info.Conn.RemoteAddr().String()
+			}
+		},
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -295,6 +319,7 @@ func (s *Scanner) fetch(ctx context.Context, target string) (*pageInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	sum := sha256.Sum256(body)
 
 	finalURL := target
 	if resp.Request != nil && resp.Request.URL != nil {
@@ -305,7 +330,36 @@ func (s *Scanner) fetch(ctx context.Context, target string) (*pageInfo, error) {
 		status:  resp.StatusCode,
 		headers: resp.Header,
 		body:    body,
+		remote:  remote,
+		sha256:  hex.EncodeToString(sum[:]),
 	}, nil
+}
+
+// evidenceHeaders keeps a small, documented set of response headers for the
+// evidence report. It deliberately avoids cookies and other secrets.
+func evidenceHeaders(h http.Header) map[string]string {
+	names := []string{
+		"Server",
+		"X-Powered-By",
+		"X-PHP-Version",
+		"X-PHP-Engine",
+		"Content-Type",
+		"Via",
+		"CF-Ray",
+		"X-Sucuri-ID",
+		"X-Akamai-Transformed",
+		"X-Fastly-Request-ID",
+	}
+	out := make(map[string]string, len(names))
+	for _, name := range names {
+		if value := h.Get(name); value != "" {
+			out[name] = truncate(value, 240)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (s *Scanner) deepCheck(ctx context.Context, base string) detection {
@@ -327,12 +381,20 @@ func (s *Scanner) deepCheck(ctx context.Context, base string) detection {
 	}
 	paths := []string{
 		dir + "index.php",
+		dir + "phpinfo.php",
+		dir + "info.php",
+		dir + "phpversion.php",
 		dir + "php2shell-check-" + hex.EncodeToString(random) + ".php",
 	}
 
+	seen := make(map[string]bool, len(paths))
 	var merged detection
-	for _, path := range paths {
-		page, err := s.fetch(ctx, origin+path)
+	for _, candidate := range paths {
+		if seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		page, err := s.fetch(ctx, origin+candidate)
 		if err != nil {
 			if ctx.Err() != nil {
 				break
@@ -341,9 +403,11 @@ func (s *Scanner) deepCheck(ctx context.Context, base string) detection {
 		}
 		d := analyzePage(page)
 		if d.php {
-			d.evidence = append(d.evidence, "Hittades via extra kontroll: "+path)
+			d.evidence = append(d.evidence, "Hittades via extra kontroll: "+candidate)
 		}
 		mergeDetection(&merged, d)
+		// Stop as soon as a concrete version is known; further probes add
+		// load without improving the assessment.
 		if merged.version != "" {
 			break
 		}
@@ -360,6 +424,13 @@ var (
 	phpErrorRe         = regexp.MustCompile(`(?is)(?:Fatal error|Parse error|Uncaught (?:Error|Exception)|Warning|Notice|Deprecated)\s*:.{0,200}?\bon line\s+\d+`)
 	uploadFormRe       = regexp.MustCompile(`(?is)<form\b[^>]*\benctype\s*=\s*["']?\s*multipart/form-data`)
 	fileInputRe        = regexp.MustCompile(`(?is)<input\b[^>]*\btype\s*=\s*["']?\s*file\b`)
+	// Enhanced PHP version detection patterns
+	phpInfoTableRe     = regexp.MustCompile(`(?is)PHP\s*Version\s*</\w+>\s*</\w+>\s*<\w+>\s*(\d+\.\d+(?:\.\d+)?(?:[-+][\w\.\-]+)?)`)
+	phpVersionInTitle  = regexp.MustCompile(`(?i)<title>[^<]*PHP[^<]*?(\d+\.\d+(?:\.\d+)?)`)
+	phpVersionInScript = regexp.MustCompile(`(?i)PHP_VERSION\s*[=:]\s*['"](\d+\.\d+(?:\.\d+)?)['"]`)
+	phpZendVersionRe   = regexp.MustCompile(`(?i)Zend\s*Engine\s*v?[^\d]*(\d+\.\d+(?:\.\d+)?)`)
+	phpInfoConfigRe    = regexp.MustCompile(`(?i)PHP Version.*?(\d+\.\d+(?:\.\d+)?)`)
+	phpStandaloneRe    = regexp.MustCompile(`(?i)\bPHP\s+(\d+\.\d+(?:\.\d+)?)\b`)
 )
 
 var phpSessionCookies = []string{
@@ -405,9 +476,9 @@ func analyzePage(p *pageInfo) detection {
 			d.evidence = appendUnique(d.evidence, candidate.header+": "+truncate(value, 160))
 			break
 		}
-		if candidate.header == "X-Powered-By" && strings.Contains(strings.ToUpper(value), "PHP") {
+		if (candidate.header == "X-Powered-By" || candidate.header == "Server") && strings.Contains(strings.ToUpper(value), "PHP") {
 			d.php = true
-			d.evidence = appendUnique(d.evidence, "X-Powered-By: "+truncate(value, 160))
+			d.evidence = appendUnique(d.evidence, candidate.header+": "+truncate(value, 160))
 		}
 	}
 
@@ -442,13 +513,36 @@ func analyzePage(p *pageInfo) detection {
 		d.evidence = appendUnique(d.evidence, "PHP-felmeddelande i svaret: "+truncate(strings.Join(strings.Fields(m), " "), 180))
 	}
 
+	versionPatterns := []*regexp.Regexp{
+		phpInfoTableRe,
+		phpInfoVersionRe,
+		phpPoweredVersion,
+		phpGeneratorRe,
+		phpVersionInTitle,
+		phpVersionInScript,
+		phpZendVersionRe,
+		phpInfoConfigRe,
+		phpStandaloneRe,
+	}
 	if d.version == "" {
-		for _, re := range []*regexp.Regexp{phpInfoVersionRe, phpPoweredVersion, phpGeneratorRe} {
+		for _, re := range versionPatterns {
 			if m := re.FindStringSubmatch(body); m != nil {
 				d.php = true
 				d.version = cleanVersion(m[1])
 				d.versionSrc = "HTML-svar"
 				d.evidence = appendUnique(d.evidence, "PHP-version anges i HTML-svaret: "+d.version)
+				break
+			}
+		}
+	} else if len(d.version) <= 3 {
+		// A header may expose only "8.4". Look for a more precise patch
+		// level in the body without replacing an already exact version.
+		for _, re := range versionPatterns {
+			if m := re.FindStringSubmatch(body); m != nil {
+				if full := cleanVersion(m[1]); len(full) > len(d.version) {
+					d.version = full
+					d.evidence = appendUnique(d.evidence, "Mer fullständig PHP-version hittades i HTML-svaret: "+d.version)
+				}
 				break
 			}
 		}
