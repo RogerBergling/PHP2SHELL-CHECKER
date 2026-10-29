@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="scanner-token" content="{{TOKEN}}">
+<meta name="scanner-version" content="{{VERSION}}">
 <meta name="color-scheme" content="dark">
 <title>PHP2Shell Checker</title>
 <style>
@@ -348,7 +349,7 @@
       <details class="advanced">
         <summary>Avancerat</summary>
         <label>User-Agent
-          <input type="text" id="userAgent" value="PHP2ShellChecker/1.1 (defensive vulnerability check)">
+          <input type="text" id="userAgent" value="PHP2ShellChecker/{{VERSION}} (defensive vulnerability check)">
         </label>
       </details>
     </details>
@@ -480,6 +481,7 @@
   "use strict";
 
   const TOKEN = document.querySelector('meta[name="scanner-token"]').content;
+  const VERSION = document.querySelector('meta[name="scanner-version"]').content;
   const $ = (id) => document.getElementById(id);
   const targetsEl = $("targets");
   const resultsBody = $("resultsBody");
@@ -571,7 +573,7 @@
       followRedirects: $("followRedirects").checked,
       deepCheck: $("deepCheck").checked,
       insecureTls: $("insecureTls").checked,
-      userAgent: $("userAgent").value.trim() || "PHP2ShellChecker/1.1 (defensive vulnerability check)",
+      userAgent: $("userAgent").value.trim() || `PHP2ShellChecker/${VERSION} (defensive vulnerability check)`,
     };
   }
 
@@ -624,8 +626,8 @@
     return haystack.includes(state.query);
   }
 
-  function sortedResults() {
-    const list = state.results.filter(matches);
+  function sortResults(results) {
+    const list = results.slice();
     if (state.sort === "url") {
       list.sort((a, b) => String(a.input).localeCompare(String(b.input), "sv"));
     } else if (state.sort === "severity") {
@@ -633,6 +635,16 @@
       list.sort((a, b) => (order[a.verdict] ?? 9) - (order[b.verdict] ?? 9));
     }
     return list;
+  }
+
+  function sortedResults() {
+    return sortResults(state.results.filter(matches));
+  }
+
+  // Export must include every scanned result, not only the rows that
+  // currently match the search field or verdict filter.
+  function allSortedResults() {
+    return sortResults(state.results);
   }
 
   function detailHTML(result) {
@@ -1024,7 +1036,7 @@
       report: "PHP2Shell Checker – bevisrapport",
       generatedAt: new Date().toISOString(),
       tool: "PHP2Shell Checker",
-      version: $("versionPill").textContent.replace(/^v/, ""),
+      version: VERSION,
       cves: ["CVE-2026-109618", "CVE-2026-109619", "CVE-2026-115560"],
       methodology: "Icke-invasiv kontroll med ordinarie HTTP GET-förfrågningar. Inga exploit-payloads skickades, inga filer laddades upp och ingen åtkomst etablerades. Ingen ändring gjordes på målservern.",
       limitation: "Resultatet är en indikation på PHP-version och konfiguration, inte ett bevis på att sårbarheten är utnyttjad eller utnyttjadbar.",
@@ -1212,7 +1224,11 @@
   }
 
   function csvEscape(value) {
-    const text = value == null ? "" : String(value);
+    let text = value == null ? "" : String(value);
+    // Neutralize spreadsheet formulas in attacker-controlled values such as
+    // URLs, headers and page evidence. The leading apostrophe is harmless in
+    // Excel/LibreOffice and keeps the exported value as text.
+    if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
     return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
 
@@ -1224,7 +1240,7 @@
       "PHP-länkar", "Svarstid (ms)", "Detaljer", "CVE-2026-115560", "Rekommendation (CVE-2026-115560)",
       "Bevis", "Fel", "Kontrollerad", "Serverns IP", "Svarsskropp SHA-256", "HTTP-huvuden"
     ];
-    const rows = sortedResults().map((r) => [
+    const rows = allSortedResults().map((r) => [
       r.input, r.finalUrl, r.statusCode, r.phpDetected ? "Ja" : "Nej", r.phpVersion, r.versionSource,
       r.verdictLabel, r.verdict, r.fixedIn, r.server, r.poweredBy, r.app,
       r.phpLinks, r.elapsedMs, r.detail,
@@ -1244,13 +1260,13 @@
     const payload = {
       generatedAt: new Date().toISOString(),
       scanner: "PHP2Shell Checker",
-      version: $("versionPill").textContent.replace(/^v/, ""),
+      version: VERSION,
       cves: ["CVE-2026-109618", "CVE-2026-109619", "CVE-2026-115560"],
       summary: state.results.reduce((acc, r) => {
         acc[r.verdict] = (acc[r.verdict] || 0) + 1;
         return acc;
       }, {}),
-      results: sortedResults(),
+      results: allSortedResults(),
     };
     download(`php2shell-resultat-${timestamp()}.json`, JSON.stringify(payload, null, 2), "application/json");
     toast(`Exporterade ${state.results.length} resultat till JSON.`);
@@ -1281,7 +1297,13 @@
       toast("Filen är för stor (max 5 MB).", true);
       return;
     }
-    const text = await file.text();
+    let text;
+    try {
+      text = await file.text();
+    } catch (error) {
+      toast(`Kunde inte läsa ${file.name}: ${error.message}`, true);
+      return;
+    }
     const existing = targetsEl.value.trim();
     targetsEl.value = (existing ? existing + "\n" : "") + text;
     updateTargetCount();

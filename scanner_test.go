@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +31,7 @@ func TestAssessPHPVersion(t *testing.T) {
 		{"8.3.36", "safe", "8.3.36"},
 		{"8.4.26", "vulnerable", "8.4.27"},
 		{"8.4.27", "safe", "8.4.27"},
+		{"8.4.27-1", "safe", "8.4.27"},
 		{"8.5.11", "vulnerable", "8.5.12"},
 		{"8.5.12", "safe", "8.5.12"},
 		{"8.5.13", "safe", "8.5.12"},
@@ -45,6 +48,36 @@ func TestAssessPHPVersion(t *testing.T) {
 				t.Fatalf("assessPHPVersion(%q).FixedIn = %q, want %q", test.version, assessment.FixedIn, test.fixed)
 			}
 		})
+	}
+}
+
+func TestParsePHPVersionRejectsInvalidNumbers(t *testing.T) {
+	for _, raw := range []string{"", "PHP 8.4", "999999999999999999999999.1.1"} {
+		if _, ok := parsePHPVersion(raw); ok {
+			t.Fatalf("parsePHPVersion(%q) unexpectedly succeeded", raw)
+		}
+	}
+}
+
+func TestDefaultUserAgentUsesAppVersion(t *testing.T) {
+	opts := ScanOptions{}
+	opts.applyDefaults()
+	if !strings.Contains(opts.UserAgent, appVersion) {
+		t.Fatalf("UserAgent = %q, want it to contain app version %q", opts.UserAgent, appVersion)
+	}
+}
+
+func TestApplyDefaultsSanitizesUserAgent(t *testing.T) {
+	opts := ScanOptions{UserAgent: "skanner\r\nX-Injected: true"}
+	opts.applyDefaults()
+	if strings.ContainsAny(opts.UserAgent, "\r\n") {
+		t.Fatalf("UserAgent = %q, want CR/LF removed", opts.UserAgent)
+	}
+
+	long := ScanOptions{UserAgent: strings.Repeat("a", 600)}
+	long.applyDefaults()
+	if len(long.UserAgent) != 512 {
+		t.Fatalf("len(UserAgent) = %d, want 512", len(long.UserAgent))
 	}
 }
 
@@ -129,6 +162,35 @@ func TestScanFixedPHP(t *testing.T) {
 	}
 	if result.FixedIn != "8.4.27" {
 		t.Fatalf("FixedIn = %q, want 8.4.27", result.FixedIn)
+	}
+}
+
+func TestScanCapturesEvidenceWithoutCookieValues(t *testing.T) {
+	body := `<html><body><a href="/index.php">Hem</a></body></html>`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "nginx/1.27.3")
+		w.Header().Set("X-Powered-By", "PHP/8.4.27")
+		w.Header().Set("Set-Cookie", "PHPSESSID=hemlig; Path=/; HttpOnly")
+		_, _ = io.WriteString(w, body)
+	}))
+	defer server.Close()
+
+	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
+	if result.RemoteIP == "" {
+		t.Fatal("RemoteIP is empty, want the address that answered")
+	}
+	sum := sha256.Sum256([]byte(body))
+	if result.BodySHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("BodySHA256 = %q, want hash of the response body", result.BodySHA256)
+	}
+	if result.Server != "nginx/1.27.3" {
+		t.Fatalf("Server = %q, want nginx/1.27.3", result.Server)
+	}
+	if result.ResponseHeaders["Server"] != "nginx/1.27.3" {
+		t.Fatalf("ResponseHeaders[Server] = %q, want nginx/1.27.3", result.ResponseHeaders["Server"])
+	}
+	if _, ok := result.ResponseHeaders["Set-Cookie"]; ok {
+		t.Fatal("ResponseHeaders contains Set-Cookie, want cookie values omitted from evidence")
 	}
 }
 

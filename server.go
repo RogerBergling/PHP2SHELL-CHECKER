@@ -17,7 +17,10 @@ import (
 	"time"
 )
 
-const appVersion = "1.1.0"
+const (
+	appVersion       = "1.1.1"
+	defaultUserAgent = "PHP2ShellChecker/" + appVersion + " (defensive vulnerability check)"
+)
 
 //go:embed web/index.html
 var indexHTML string

@@ -17,6 +17,10 @@ node_modules/
 dist/
 build/
 
+# Lokala utvecklingsbyggen (release/ hanteras separat)
+/php2shell-checker
+/php2shell-checker.exe
+
 # Lokala editorer och loggar
 .vscode/
 *.log

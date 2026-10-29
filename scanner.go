@@ -57,8 +57,15 @@ func (o *ScanOptions) applyDefaults() {
 	if o.DelayMS > 10000 {
 		o.DelayMS = 10000
 	}
-	if strings.TrimSpace(o.UserAgent) == "" {
-		o.UserAgent = "PHP2ShellChecker/1.1 (defensive vulnerability check)"
+	o.UserAgent = strings.TrimSpace(o.UserAgent)
+	if o.UserAgent == "" {
+		o.UserAgent = defaultUserAgent
+	}
+	if len(o.UserAgent) > 512 {
+		o.UserAgent = o.UserAgent[:512]
+	}
+	if strings.ContainsAny(o.UserAgent, "\r\n") {
+		o.UserAgent = defaultUserAgent
 	}
 }
 

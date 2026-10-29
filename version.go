@@ -29,12 +29,21 @@ func parsePHPVersion(s string) (phpVersion, bool) {
 	if m == nil {
 		return phpVersion{}, false
 	}
-	major, _ := strconv.Atoi(m[1])
-	minor, _ := strconv.Atoi(m[2])
+	major, err := strconv.Atoi(m[1])
+	if err != nil {
+		return phpVersion{}, false
+	}
+	minor, err := strconv.Atoi(m[2])
+	if err != nil {
+		return phpVersion{}, false
+	}
 	var patch int
 	hasPatch := m[3] != ""
 	if hasPatch {
-		patch, _ = strconv.Atoi(m[3])
+		patch, err = strconv.Atoi(m[3])
+		if err != nil {
+			return phpVersion{}, false
+		}
 	}
 	return phpVersion{major: major, minor: minor, patch: patch, hasPatch: hasPatch}, true
 }
@@ -93,7 +102,7 @@ func assessPHPVersion(version string) phpAssessment {
 			Verdict: "vulnerable",
 			Label:   "Sårbar – EOL",
 			FixedIn: "Ingen officiell fix – backport krävs",
-			Detail:  "PHP " + v.String() + " är end-of-life och saknar officiell rättelse för PHP2Shell. En leverantörsbackport kan finnas; kontrollera paketets changelog efter CVE-2026-109618.",
+			Detail:  "PHP " + v.String() + " är end-of-life och saknar officiell binär rättelse för PHP2Shell. PHP-projektet har publicerat källbackporter för 7.4, 8.0 och 8.1; äldre grenar kräver leverantörsbackport. Kontrollera paketets changelog efter CVE-2026-109618.",
 		}
 	}
 

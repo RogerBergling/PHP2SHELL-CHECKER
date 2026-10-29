@@ -11,6 +11,94 @@ import (
 	"time"
 )
 
+func TestIndexServesTokenAndVersion(t *testing.T) {
+	app := NewApp()
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Host = "127.0.0.1:8080"
+	recorder := httptest.NewRecorder()
+
+	app.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type = %q, want text/html; charset=utf-8", got)
+	}
+	for header, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "no-referrer",
+		"Cache-Control":          "no-store",
+	} {
+		if got := recorder.Header().Get(header); got != want {
+			t.Fatalf("%s = %q, want %q", header, got, want)
+		}
+	}
+
+	body := recorder.Body.String()
+	for _, want := range []string{
+		app.token,
+		`name="scanner-version" content="` + appVersion + `"`,
+		`value="PHP2ShellChecker/` + appVersion + ` (defensive vulnerability check)"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("index body does not contain %q", want)
+		}
+	}
+	for _, placeholder := range []string{"{{TOKEN}}", "{{VERSION}}"} {
+		if strings.Contains(body, placeholder) {
+			t.Fatalf("index body still contains unresolved placeholder %q", placeholder)
+		}
+	}
+}
+
+func TestIndexRejectsUnsupportedMethod(t *testing.T) {
+	app := NewApp()
+	request := httptest.NewRequest(http.MethodPost, "/", nil)
+	request.Host = "127.0.0.1:8080"
+	recorder := httptest.NewRecorder()
+
+	app.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", recorder.Code)
+	}
+	if got := recorder.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Fatalf("Allow = %q, want GET, HEAD", got)
+	}
+}
+
+func TestAuthorizedRequiresLocalHostAndMatchingOrigin(t *testing.T) {
+	app := NewApp()
+	tests := []struct {
+		name   string
+		host   string
+		origin string
+		want   bool
+	}{
+		{"ipv4 loopback", "127.0.0.1:8080", "", true},
+		{"localhost", "localhost:8080", "", true},
+		{"ipv6 loopback", "[::1]:8080", "", true},
+		{"foreign host", "example.com", "", false},
+		{"matching origin", "127.0.0.1:8080", "http://127.0.0.1:8080", true},
+		{"foreign origin", "127.0.0.1:8080", "http://evil.example", false},
+		{"other local origin", "127.0.0.1:8080", "http://localhost:8080", false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/scan", nil)
+			request.Host = test.host
+			request.Header.Set("X-Scanner-Token", app.token)
+			if test.origin != "" {
+				request.Header.Set("Origin", test.origin)
+			}
+			if got := app.authorized(request); got != test.want {
+				t.Fatalf("authorized(host=%q, origin=%q) = %v, want %v", test.host, test.origin, got, test.want)
+			}
+		})
+	}
+}
+
 func TestScanEndpointStreamsResults(t *testing.T) {
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Powered-By", "PHP/8.3.35")

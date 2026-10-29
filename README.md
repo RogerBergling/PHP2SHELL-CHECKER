@@ -34,13 +34,13 @@ Kontrollera i denna ordning:
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\verify-windows.ps1
    ```
-   Skriptet visar storlek, första byte (`4D 5A` = giltig Windows-binär) och jämför SHA-256 med `SHA256SUMS.txt`.
+   Skriptet visar storlek, första byte (`4D 5A` = giltig Windows-binär) och jämför SHA-256 med `SHA256SUMS.txt`. Om du bara hämtade ZIP-filen behöver du även ladda ner `verify-windows.ps1` och `SHA256SUMS.txt` från `release/` och lägga dem bredvid den extraherade EXE-filen.
 2. **Jämför kontrollsumman manuellt.**
    ```powershell
    Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
    ```
    Hashvärdet ska stå i `release/SHA256SUMS.txt`. Stämmer det inte är filen ofullständigt nedladdad – ladda ner igen.
-3. **Kontrollera filstorleken.** `.exe`-filen ska vara **7 850 496 byte** (cirka 7,5 MiB) i version 1.1.0. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
+3. **Kontrollera filstorleken.** `.exe`-filen ska vara **7 894 528 byte** (cirka 7,5 MiB) i version 1.1.1. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
 4. **Avblockera filen.** Högerklicka → **Egenskaper** → kryssa i **Avblockera** (Unblock) → **OK**, eller:
    ```powershell
    Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
@@ -64,7 +64,7 @@ Kontrollera i denna ordning:
    cd PHP2SHELL-CHECKER
    .\build-windows.bat
    ```
-10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.1.0` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
+10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.1.1` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
 
 > **Smart App Control / S-läge:** Windows 11 kan blockera osignerade program. Kontrollera **Windows-säkerhet → App- och webbläsarkontroll**. Smart App Control kan stängas av om du litar på filen (det går inte att slå på igen utan ominstallation). Windows i **S-läge** kan bara köra program från Microsoft Store.
 
@@ -105,7 +105,7 @@ Stäng av med **Stäng av** i gränssnittet eller `Ctrl+C` i terminalen.
 5. Markera raderna för de värdar du vill följa upp. Verktygsfältet **Valda värdar** blir då synligt.
 6. **Verifiera valda** gör om kontrollen för de markerade värdarna med nya GET-förfrågningar och uppdaterar bevisen (IP-adress, tidsstämpel och fingeravtryck).
 7. **Bevisrapport (HTML)** skapar en utskriftsvänlig rapport med sammanfattning, metod, fynd, rekommendationer och signaturfält. **Bevisrapport (JSON)** ger samma underlag i maskinläsbar form.
-8. Exportera alla resultat som **CSV** eller **JSON**.
+8. Exportera alla resultat som **CSV** eller **JSON**. Exporten omfattar alltid hela resultatlistan, oavsett vilket filter eller vilken sökning som är aktiv.
 
 Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `https://` testas först med HTTPS och därefter med HTTP om HTTPS inte kan ansluta.
 
@@ -119,14 +119,14 @@ Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `ht
 | Följ omdirigeringar | På | Följer upp till 6 omdirigeringar. |
 | Utökad kontroll | På | Gör ett fåtal extra GET-anrop per sajt: `index.php`, `phpinfo.php`, `info.php` och `phpversion.php`. Stoppar så snart en version hittats. |
 | Ignorera TLS-fel | Av | Användbart för servrar med trasiga eller självsignerade certifikat. |
-| User-Agent | `PHP2ShellChecker/1.1 …` | Kan ändras om en sajt blockerar skannern. |
+| User-Agent | `PHP2ShellChecker/1.1.1 …` | Kan ändras om en sajt blockerar skannern. |
 
 ## Bedömningar
 
 | Bedömning | Betydelse |
 | --- | --- |
 | **Sårbar** | PHP-versionen är äldre än den rättade versionen i samma gren. |
-| **Sårbar – EOL** | PHP 8.1 eller äldre. Ingen officiell fix finns; en leverantörsbackport kan finnas. |
+| **Sårbar – EOL** | PHP 8.1 eller äldre. Ingen officiell binär release finns; PHP tillhandahåller källbackporter för 7.4–8.1, i övriga fall krävs leverantörsbackport. |
 | **PHP – okänd version** | PHP upptäcktes, men versionen kunde inte fastställas. Sårbarheten kan inte uteslutas. |
 | **PHP – åtgärdad** | PHP-versionen är samma som eller nyare än den rättade versionen. |
 | **Inga PHP-indikatorer** | Inga tydliga PHP-tecken hittades. Det utesluter inte PHP bakom CDN, WAF eller ett dolt gränssnitt. |
@@ -140,11 +140,11 @@ PHP2Shell påverkar PHP 5.4 och senare. Följande versioner innehåller rättels
 - PHP **8.4.27** eller senare
 - PHP **8.3.36** eller senare
 - PHP **8.2.35** eller senare
-- PHP 8.1 och äldre: end-of-life, kräver leverantörsbackport
+- PHP 8.1 och äldre: end-of-life. PHP-projektet har publicerat källbackporter för 7.4, 8.0 och 8.1; äldre grenar kräver leverantörsbackport.
 
 ### CVE-2026-115560 och session.upload_progress
 
-Två dagar efter PHP2Shell-fixarna varnade PHP för ytterligare ett sätt att köra kod: **CVE-2026-115560**. Det påverkar bara webbappar som är konfigurerade på ett ovanligt sätt, och PHP bedömer risken som låg. Ingen brådskande fix utfärdas; rättelsen väntas i nästa ordinarie PHP-utgåva.
+Två dagar efter PHP2Shell-fixarna varnade PHP för ytterligare ett sätt att köra kod: **CVE-2026-115560**. Det påverkar bara webbappar som är konfigurerade på ett ovanligt sätt: applikationen måste sätta `session.serialize_handler` till `php_binary` eller `php_serialize` och sedan byta till `php` i runtime med `ini_set()` före `session_start()`, samtidigt som `session.upload_progress` är aktiverat. PHP bedömer risken som låg. Ingen brådskande fix utfärdas; rättelsen väntas i nästa ordinarie PHP-utgåva.
 
 Rekommendationen är att stänga av funktionen tills dess:
 
@@ -157,7 +157,7 @@ Starta om PHP-FPM/Apache efter ändringen. Kontrollen är separat från PHP2Shel
 Eftersom `php.ini` inte kan läsas över HTTP är kontrollen en heuristik:
 
 - **Kontrollera konfigurationen** visas när PHP upptäcks.
-- **Möjligen påverkad – kontrollera** visas när sajten dessutom använder en PHP-sessionscookie och har filuppladdning i HTML-svaret.
+- **Möjligen påverkad – kontrollera** visas när sajten dessutom använder en PHP-sessionscookie och har filuppladdning i HTML-svaret. Det är en indikator, inte ett bevis på att applikationen byter `session.serialize_handler` i runtime.
 
 Skannern skickar inga uppladdningar och ändrar inget. Verifiera alltid `session.upload_progress.enabled` på servern.
 
@@ -181,7 +181,7 @@ Om en PHP-version hittas jämförs den med de rättade versionerna ovan. Skanner
 Resultatlistan kan användas som underlag i en utredning eller för rapportering till säkerhetsledningen:
 
 - **Markera värdar** med kryssrutorna (eller kryssrutan i tabellhuvudet för alla synliga rader). Markeringen behålls när du filtrerar och sorterar.
-- **Verifiera valda** kör om den vanliga, icke-invasiva kontrollen för de markerade värdarna och ersätter raderna med färska bevis. Varje resultat innehåller då även vilken IP-adress som svarade, en SHA-256-fingeravtryck på HTTP-svarskroppen och ett urval av svarshuvuden.
+- **Verifiera valda** kör om den vanliga, icke-invasiva kontrollen för de markerade värdarna och ersätter raderna med färska bevis. Varje resultat innehåller då även vilken IP-adress som svarade, ett SHA-256-fingeravtryck på de första 2 MiB av HTTP-svarskroppen och ett urval av svarshuvuden.
 - **Bevisrapport (HTML)** genererar en fristående, utskriftsvänlig rapport med sammanfattning, metodbeskrivning, avgränsning, per-värd-fynd, rekommendationer och signaturfält. Öppna filen i en webbläsare och skriv ut eller spara som PDF.
 - **Bevisrapport (JSON)** ger samma urval i maskinläsbar form för ärendehantering eller vidare bearbetning.
 

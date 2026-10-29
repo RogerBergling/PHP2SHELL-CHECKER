@@ -1,4 +1,4 @@
-PHP2Shell Checker 1.1.0
+PHP2Shell Checker 1.1.1
 =======================
 
 Defensiv kontroll av PHP och PHP2Shell (CVE-2026-109618, CVE-2026-109619)
@@ -20,10 +20,12 @@ tom ZIP beror pa att filen pa datorn ar ofullstandig, blockerad eller
 ligger pa ett skadat filsystem - inte pa programmet.
 
 Kontrollera i denna ordning:
-1. Kor i PowerShell i denna mapp:
+1. Om du bara har ZIP-filen: ladda ner verify-windows.ps1 och
+   SHA256SUMS.txt fran projektets release-mapp och lagg dem bredvid
+   EXE-filen. Kor sedan i PowerShell:
      powershell -ExecutionPolicy Bypass -File .\verify-windows.ps1
    Skriptet kontrollerar storlek, filhuvud och SHA-256.
-2. EXE-filen ska vara 7 850 496 byte (cirka 7,5 MiB) i version 1.1.0.
+2. EXE-filen ska vara 7 894 528 byte (cirka 7,5 MiB) i version 1.1.1.
    Ar den 0 byte eller bara nagra kilobyte har nedladdningen misslyckats.
 3. Avblockera filen: hogerklicka -> Egenskaper -> Avblockera, eller:
      Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
@@ -31,10 +33,11 @@ Kontrollera i denna ordning:
 5. Kontrollera skyddshistoriken i Windows-sakerhet (antivirus).
 6. Om bade ZIP och EXE blir skadade, kor som administratör:
      chkdsk C: /scan
-7. Reservvag om nedladdningen fortsatter bli skadad:
+7. Reservvag om nedladdningen fortsatter bli skadad: ladda ner
+   restore-windows.ps1 och PHP2Shell-Checker-Windows-x64.exe.gz.b64
+   fran projektets release-mapp och kor:
      powershell -ExecutionPolicy Bypass -File .\restore-windows.ps1
-   Skriptet aterstaller EXE-filen fran textfilen
-   PHP2Shell-Checker-Windows-x64.exe.gz.b64 och verifierar SHA-256.
+   Skriptet aterstaller EXE-filen fran textfilen och verifierar SHA-256.
 8. Testa: .\PHP2Shell-Checker-Windows-x64.exe --version
 
 Kontrollera Smart App Control / S-lage i Windows-sakerhet om filen
