@@ -1,6 +1,6 @@
 # PHP2Shell Checker
 
-En snabb, defensiv skanner med grafiskt gränssnitt för att kontrollera om en webbplats använder PHP och om PHP-versionen påverkas av **PHP2Shell** (CVE-2026-109618 och CVE-2026-109619). Skannern flaggar även **CVE-2026-115560** (`session.upload_progress`) som en separat rekommendation.
+En snabb, defensiv skanner med grafiskt gränssnitt för att kontrollera om en webbplats använder PHP, göra en djup versionanalys och avgöra om PHP-versionen påverkas av **PHP2Shell** (CVE-2026-109618 och CVE-2026-109619). Skannern flaggar även **CVE-2026-115560** (`session.upload_progress`) som en separat rekommendation.
 
 Skannern finns som fristående filer:
 
@@ -40,7 +40,7 @@ Kontrollera i denna ordning:
    Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
    ```
    Hashvärdet ska stå i `release/SHA256SUMS.txt`. Stämmer det inte är filen ofullständigt nedladdad – ladda ner igen.
-3. **Kontrollera filstorleken.** `.exe`-filen ska vara **7 894 528 byte** (cirka 7,5 MiB) i version 1.1.1. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
+3. **Kontrollera filstorleken.** `.exe`-filen ska vara **7 993 856 byte** (cirka 7,5 MiB) i version 1.2.0. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
 4. **Avblockera filen.** Högerklicka → **Egenskaper** → kryssa i **Avblockera** (Unblock) → **OK**, eller:
    ```powershell
    Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
@@ -64,7 +64,7 @@ Kontrollera i denna ordning:
    cd PHP2SHELL-CHECKER
    .\build-windows.bat
    ```
-10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.1.1` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
+10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.2.0` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
 
 > **Smart App Control / S-läge:** Windows 11 kan blockera osignerade program. Kontrollera **Windows-säkerhet → App- och webbläsarkontroll**. Smart App Control kan stängas av om du litar på filen (det går inte att slå på igen utan ominstallation). Windows i **S-läge** kan bara köra program från Microsoft Store.
 
@@ -117,9 +117,9 @@ Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `ht
 | Samtidiga | 5 | Antal webbplatser som skannas parallellt. |
 | Fördröjning/värd | 250 ms | Minsta tid mellan anrop till samma värd. |
 | Följ omdirigeringar | På | Följer upp till 6 omdirigeringar. |
-| Utökad kontroll | På | Gör ett fåtal extra GET-anrop per sajt: `index.php`, `phpinfo.php`, `info.php` och `phpversion.php`. Stoppar så snart en version hittats. |
+| Djup versionanalys | På | Kombinerar PHP-indikatorer från cookies med versioner från svarshuvuden, HTML, phpinfo-liknande sidor och flera vanliga diagnostiksökvägar. Provar även webbplatsens rot om den aktuella katalogen inte ger en fullständig version. Stoppar så snart en fullständig version hittats, men kan innebära fler anrop och längre skanningstid. |
 | Ignorera TLS-fel | Av | Användbart för servrar med trasiga eller självsignerade certifikat. |
-| User-Agent | `PHP2ShellChecker/1.1.1 …` | Kan ändras om en sajt blockerar skannern. |
+| User-Agent | `PHP2ShellChecker/1.2.0 …` | Kan ändras om en sajt blockerar skannern. |
 
 ## Bedömningar
 
@@ -165,14 +165,16 @@ Skannern skickar inga uppladdningar och ändrar inget. Verifiera alltid `session
 
 Skannern är **icke-invasiv** och skickar inga exploit-payloads. Den gör vanliga `GET`-förfrågningar och letar efter PHP-indikatorer:
 
-- HTTP-huvuden som `X-Powered-By: PHP/8.4.26`, `Server` och `X-PHP-Version`.
+- HTTP-huvuden som `X-Powered-By: PHP/8.4.26`, `X-PHP-Version`, `X-PHP-Engine`, `X-Server-Powered-By`, `X-Backend-Server` och `Server`.
 - Cookies som `PHPSESSID`, `laravel_session`, `ci_session` med flera.
 - HTML-referenser till `.php`-filer.
 - PHP-felmeddelanden i svaret.
-- PHP-version i HTML (till exempel phpinfo eller `Powered by PHP`).
+- PHP-version i HTML, inklusive `PHP Version`, `Powered by PHP`, `PHP/8.x`, meta generator, `PHP_VERSION`, JSON-fält och Zend OPcache.
+- **Zend Engine-versionen räknas om till rätt PHP-gren** (Zend 4.3.x = PHP 8.3.x, Zend 3.4.x = PHP 7.4.x, Zend 2.6.x = PHP 5.6.x) i stället för att felaktigt tolkas som en PHP-version.
+- Alla versionsobservationer sparas som kandidater med källa och styrka. Den mest tillförlitliga källan vinner, men en något svagare källa får komplettera en ofullständig version som `8.4` med exakt patchversion.
 - Kända PHP-applikationer som WordPress, Drupal, Joomla, Magento, Laravel och Nextcloud.
 - PHP-sessionscookies och filuppladdningsformulär, som underlag för CVE-2026-115560-rekommendationen.
-- Med **Utökad kontroll** även `index.php`, `phpinfo.php`, `info.php` och `phpversion.php` i samma katalog. Kontrollen stoppar så snart en version hittats.
+- Med **Djup versionanalys**, när huvudsvaret inte ger en fullständig version, även `index.php`, `phpinfo.php`, `info.php`, `php-info.php`, `phpversion.php`, `test.php` och en slumpmässig `.php`-kontroll i samma katalog. Hittas ingen fullständig version provas samma sökvägar i webbplatsens rot. Alla kontroller loggas i resultatet med URL, HTTP-status och eventuell version.
 
 Om en PHP-version hittas jämförs den med de rättade versionerna ovan. Skannern försöker aldrig utnyttja sårbarheten, ladda upp filer eller ändra något på servern.
 
@@ -181,8 +183,8 @@ Om en PHP-version hittas jämförs den med de rättade versionerna ovan. Skanner
 Resultatlistan kan användas som underlag i en utredning eller för rapportering till säkerhetsledningen:
 
 - **Markera värdar** med kryssrutorna (eller kryssrutan i tabellhuvudet för alla synliga rader). Markeringen behålls när du filtrerar och sorterar.
-- **Verifiera valda** kör om den vanliga, icke-invasiva kontrollen för de markerade värdarna och ersätter raderna med färska bevis. Varje resultat innehåller då även vilken IP-adress som svarade, ett SHA-256-fingeravtryck på de första 2 MiB av HTTP-svarskroppen och ett urval av svarshuvuden.
-- **Bevisrapport (HTML)** genererar en fristående, utskriftsvänlig rapport med sammanfattning, metodbeskrivning, avgränsning, per-värd-fynd, rekommendationer och signaturfält. Öppna filen i en webbläsare och skriv ut eller spara som PDF.
+- **Verifiera valda** kör om den vanliga, icke-invasiva kontrollen för de markerade värdarna och ersätter raderna med färska bevis. Varje resultat innehåller då även vilken IP-adress som svarade, ett SHA-256-fingeravtryck på de första 2 MiB av HTTP-svarskroppen, ett urval av svarshuvuden, alla PHP-versionkandidater med källa/styrka och loggen över djupkontrollerna.
+- **Bevisrapport (HTML)** genererar en fristående, utskriftsvänlig rapport med sammanfattning, metodbeskrivning, avgränsning, per-värd-fynd, versionkällor, djupkontroller, rekommendationer och signaturfält. Öppna filen i en webbläsare och skriv ut eller spara som PDF.
 - **Bevisrapport (JSON)** ger samma urval i maskinläsbar form för ärendehantering eller vidare bearbetning.
 
 Rapporterna beskriver uttryckligen att kontrollen är icke-invasiv: inga exploit-payloads skickas, inga filer laddas upp och ingen åtkomst etableras. Ett fynd är en indikation på sårbar PHP-version, inte ett bevis på att sårbarheten är utnyttjad.
@@ -236,7 +238,7 @@ go test ./...
 .
 ├── main.go                 # Startar lokal server och webbläsare
 ├── server.go               # HTTP-server, token-skydd och streaming-API
-├── scanner.go              # Icke-invasiv PHP/versionsdetektering
+├── scanner.go              # Icke-invasiv PHP-detektering och djup versionanalys
 ├── advisory.go             # CVE-2026-115560 och session.upload_progress
 ├── version.go              # Jämförelse mot rättade PHP-versioner
 ├── web/index.html          # Grafiskt gränssnitt (HTML/CSS/JS)

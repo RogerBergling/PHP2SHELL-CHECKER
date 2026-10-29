@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	appVersion       = "1.1.1"
+	appVersion       = "1.2.0"
 	defaultUserAgent = "PHP2ShellChecker/" + appVersion + " (defensive vulnerability check)"
 )
 

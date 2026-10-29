@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -69,6 +70,25 @@ func (o *ScanOptions) applyDefaults() {
 	}
 }
 
+// VersionCandidate documents one independent observation of a PHP version.
+// Candidates are ranked by confidence and precision before a verdict is made.
+type VersionCandidate struct {
+	Version    string `json:"version"`
+	Source     string `json:"source"`
+	Confidence int    `json:"confidence"`
+}
+
+// DeepCheck records one of the extra probes made during a deep version
+// analysis. It is evidence of what was checked, including negative results.
+type DeepCheck struct {
+	URL           string `json:"url"`
+	StatusCode    int    `json:"statusCode,omitempty"`
+	PHPDetected   bool   `json:"phpDetected,omitempty"`
+	PHPVersion    string `json:"phpVersion,omitempty"`
+	VersionSource string `json:"versionSource,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
 type Result struct {
 	Input         string     `json:"input"`
 	FinalURL      string     `json:"finalUrl,omitempty"`
@@ -91,9 +111,11 @@ type Result struct {
 	CheckedAt     string     `json:"checkedAt"`
 	// The fields below are optional evidence details. They are additive so
 	// older exports and the CSV/JSON consumers keep working unchanged.
-	RemoteIP        string            `json:"remoteIp,omitempty"`
-	BodySHA256      string            `json:"bodySha256,omitempty"`
-	ResponseHeaders map[string]string `json:"responseHeaders,omitempty"`
+	RemoteIP          string             `json:"remoteIp,omitempty"`
+	BodySHA256        string             `json:"bodySha256,omitempty"`
+	ResponseHeaders   map[string]string  `json:"responseHeaders,omitempty"`
+	VersionCandidates []VersionCandidate `json:"versionCandidates,omitempty"`
+	DeepChecks        []DeepCheck        `json:"deepChecks,omitempty"`
 }
 
 type pageInfo struct {
@@ -109,6 +131,7 @@ type detection struct {
 	php           bool
 	version       string
 	versionSrc    string
+	candidates    []VersionCandidate
 	evidence      []string
 	app           string
 	phpLinks      int
@@ -235,20 +258,25 @@ func (s *Scanner) Scan(ctx context.Context, raw string) (res Result) {
 
 	res.FinalURL = page.url
 	res.StatusCode = page.status
-	res.Server = page.headers.Get("Server")
-	res.PoweredBy = page.headers.Get("X-Powered-By")
 	res.RemoteIP = page.remote
 	res.BodySHA256 = page.sha256
 	res.ResponseHeaders = evidenceHeaders(page.headers)
 
 	det := analyzePage(page)
-	if s.opts.DeepCheck && det.version == "" {
-		mergeDetection(&det, s.deepCheck(ctx, page.url))
+	var deepChecks []DeepCheck
+	if s.opts.DeepCheck && versionNeedsConfirmation(det.version) {
+		deepDetection, checks := s.deepCheck(ctx, page.url)
+		mergeDetection(&det, deepDetection)
+		deepChecks = checks
 	}
 
 	res.PHPDetected = det.php
 	res.PHPVersion = det.version
 	res.VersionSource = det.versionSrc
+	res.VersionCandidates = det.candidates
+	res.DeepChecks = deepChecks
+	res.Server = det.server
+	res.PoweredBy = det.poweredBy
 	res.App = det.app
 	res.PHPLinks = det.phpLinks
 	res.Evidence = appendUnique(det.evidence, notes...)
@@ -350,6 +378,8 @@ func evidenceHeaders(h http.Header) map[string]string {
 		"X-Powered-By",
 		"X-PHP-Version",
 		"X-PHP-Engine",
+		"X-Server-Powered-By",
+		"X-Backend-Server",
 		"Content-Type",
 		"Via",
 		"CF-Ray",
@@ -369,76 +399,251 @@ func evidenceHeaders(h http.Header) map[string]string {
 	return out
 }
 
-func (s *Scanner) deepCheck(ctx context.Context, base string) detection {
+func deepBaseDir(urlPath string) string {
+	if urlPath == "" || urlPath == "/" {
+		return "/"
+	}
+	if strings.HasSuffix(urlPath, "/") {
+		return urlPath
+	}
+	// A path with a file extension is treated as a file; an extensionless
+	// path is commonly an application mounted at /app and is probed as /app/.
+	if path.Ext(urlPath) != "" {
+		dir := path.Dir(urlPath)
+		if dir == "." || dir == "" {
+			return "/"
+		}
+		return dir + "/"
+	}
+	return urlPath + "/"
+}
+
+func (s *Scanner) deepCheck(ctx context.Context, base string) (detection, []DeepCheck) {
 	u, err := url.Parse(base)
 	if err != nil || u.Host == "" {
-		return detection{}
+		return detection{}, nil
 	}
 	origin := u.Scheme + "://" + u.Host
-	dir := path.Dir(u.Path)
-	if dir == "." || dir == "" {
-		dir = "/"
-	}
-	if !strings.HasSuffix(dir, "/") {
-		dir += "/"
-	}
+	dir := deepBaseDir(u.Path)
 	random := make([]byte, 6)
 	if _, err := rand.Read(random); err != nil {
 		random = []byte("a1b2c3")
 	}
+	canary := "php2shell-check-" + hex.EncodeToString(random) + ".php"
+
+	// First look in the same directory as the scanned URL. Common
+	// diagnostics are ordered from most to least likely to expose a version.
 	paths := []string{
 		dir + "index.php",
 		dir + "phpinfo.php",
 		dir + "info.php",
+		dir + "php-info.php",
 		dir + "phpversion.php",
-		dir + "php2shell-check-" + hex.EncodeToString(random) + ".php",
+		dir + "test.php",
+		dir + canary,
 	}
+	merged, checks := s.runDeepProbes(ctx, origin, paths)
 
+	// A site installed under /app/ often still exposes diagnostics at the
+	// document root. Only try that fallback when the directory scan did not
+	// produce a full patch-level version, so a normal scan does not double
+	// its request count.
+	if versionNeedsConfirmation(merged.version) && dir != "/" && ctx.Err() == nil {
+		rootPaths := []string{
+			"/index.php",
+			"/phpinfo.php",
+			"/info.php",
+			"/php-info.php",
+			"/phpversion.php",
+			"/test.php",
+			"/" + canary,
+		}
+		rootDetection, rootChecks := s.runDeepProbes(ctx, origin, rootPaths)
+		mergeDetection(&merged, rootDetection)
+		checks = append(checks, rootChecks...)
+	}
+	return merged, checks
+}
+
+func (s *Scanner) runDeepProbes(ctx context.Context, origin string, paths []string) (detection, []DeepCheck) {
 	seen := make(map[string]bool, len(paths))
 	var merged detection
+	checks := make([]DeepCheck, 0, len(paths))
 	for _, candidate := range paths {
 		if seen[candidate] {
 			continue
 		}
 		seen[candidate] = true
-		page, err := s.fetch(ctx, origin+candidate)
+
+		target := origin + candidate
+		check := DeepCheck{URL: target}
+		page, err := s.fetch(ctx, target)
 		if err != nil {
+			check.Error = friendlyError(err)
+			checks = append(checks, check)
 			if ctx.Err() != nil {
 				break
 			}
 			continue
 		}
+
 		d := analyzePage(page)
+		check.StatusCode = page.status
+		check.PHPDetected = d.php
+		check.PHPVersion = d.version
+		check.VersionSource = d.versionSrc
 		if d.php {
 			d.evidence = append(d.evidence, "Hittades via extra kontroll: "+candidate)
 		}
+		checks = append(checks, check)
 		mergeDetection(&merged, d)
-		// Stop as soon as a concrete version is known; further probes add
-		// load without improving the assessment.
-		if merged.version != "" {
+
+		// Stop only when a full patch-level version is known; an incomplete
+		// "8.4" still benefits from a later phpinfo page that reveals 8.4.27.
+		if merged.version != "" && !versionNeedsConfirmation(merged.version) {
 			break
 		}
 	}
-	return merged
+	return merged, checks
 }
 
 var (
-	phpHeaderVersionRe = regexp.MustCompile(`(?i)\bPHP\s*/?\s*v?(\d+\.\d+(?:\.\d+)?)`)
-	phpInfoVersionRe   = regexp.MustCompile(`(?i)\bPHP\s*Version\s*[:/]?\s*v?(\d+\.\d+(?:\.\d+)?)`)
+	phpHeaderVersionRe = regexp.MustCompile(`(?i)\bPHP(?:-CGI|-FPM)?\s*/?\s*v?(\d+\.\d+(?:\.\d+)?)`)
+	phpVersionOnlyRe   = regexp.MustCompile(`(?i)^\s*v?(\d+\.\d+(?:\.\d+)?)(?:[-+][\w.\-]+)?\s*$`)
+	phpInfoVersionRe   = regexp.MustCompile(`(?i)\bPHP\s+(?:Runtime\s+)?Version\s*[:/]?\s*v?(\d+\.\d+(?:\.\d+)?)`)
 	phpPoweredVersion  = regexp.MustCompile(`(?i)\bPowered by\s+PHP\s*[/ ]?\s*v?(\d+\.\d+(?:\.\d+)?)`)
+	phpSlashVersionRe  = regexp.MustCompile(`(?i)\bPHP(?:-CGI|-FPM)?\s*/\s*v?(\d+\.\d+(?:\.\d+)?)`)
 	phpGeneratorRe     = regexp.MustCompile(`(?is)<meta[^>]+name\s*=\s*["']generator["'][^>]+content\s*=\s*["'][^"']*PHP[^"']*?(\d+\.\d+(?:\.\d+)?)`)
+	phpGeneratorAltRe  = regexp.MustCompile(`(?is)<meta[^>]+content\s*=\s*["'][^"']*PHP[^"']*?(\d+\.\d+(?:\.\d+)?)[^"']*["'][^>]+name\s*=\s*["']generator["']`)
 	phpLinkRe          = regexp.MustCompile(`(?i)\.php(?:["'?#/&;>)\s]|$)`)
 	phpErrorRe         = regexp.MustCompile(`(?is)(?:Fatal error|Parse error|Uncaught (?:Error|Exception)|Warning|Notice|Deprecated)\s*:.{0,200}?\bon line\s+\d+`)
 	uploadFormRe       = regexp.MustCompile(`(?is)<form\b[^>]*\benctype\s*=\s*["']?\s*multipart/form-data`)
 	fileInputRe        = regexp.MustCompile(`(?is)<input\b[^>]*\btype\s*=\s*["']?\s*file\b`)
-	// Enhanced PHP version detection patterns
-	phpInfoTableRe     = regexp.MustCompile(`(?is)PHP\s*Version\s*</\w+>\s*</\w+>\s*<\w+>\s*(\d+\.\d+(?:\.\d+)?(?:[-+][\w\.\-]+)?)`)
 	phpVersionInTitle  = regexp.MustCompile(`(?i)<title>[^<]*PHP[^<]*?(\d+\.\d+(?:\.\d+)?)`)
-	phpVersionInScript = regexp.MustCompile(`(?i)PHP_VERSION\s*[=:]\s*['"](\d+\.\d+(?:\.\d+)?)['"]`)
-	phpZendVersionRe   = regexp.MustCompile(`(?i)Zend\s*Engine\s*v?[^\d]*(\d+\.\d+(?:\.\d+)?)`)
-	phpInfoConfigRe    = regexp.MustCompile(`(?i)PHP Version.*?(\d+\.\d+(?:\.\d+)?)`)
+	phpVersionInScript = regexp.MustCompile(`(?i)\bPHP_VERSION\s*[=:]\s*['"](\d+\.\d+(?:\.\d+)?)['"]`)
+	phpJSONVersionRe   = regexp.MustCompile(`(?i)["']php_?version["']\s*:\s*["']?v?(\d+\.\d+(?:\.\d+)?)`)
+	phpZendVersionRe   = regexp.MustCompile(`(?i)\bZend\s+Engine\s+v?[^\d]*(\d+\.\d+(?:\.\d+)?)`)
+	phpZendOpcacheRe   = regexp.MustCompile(`(?i)\bZend\s+OPcache\s+v?(\d+\.\d+(?:\.\d+)?)`)
 	phpStandaloneRe    = regexp.MustCompile(`(?i)\bPHP\s+(\d+\.\d+(?:\.\d+)?)\b`)
+	htmlTagRe          = regexp.MustCompile(`(?s)<[^>]*>`)
+	whitespaceRe       = regexp.MustCompile(`\s+`)
 )
+
+func htmlToText(body string) string {
+	text := htmlTagRe.ReplaceAllString(body, " ")
+	text = html.UnescapeString(text)
+	return strings.TrimSpace(whitespaceRe.ReplaceAllString(text, " "))
+}
+
+func addVersionCandidate(d *detection, raw, source string, confidence int) {
+	version := cleanVersion(raw)
+	if version == "" {
+		return
+	}
+	d.php = true
+	for i := range d.candidates {
+		if d.candidates[i].Version == version && d.candidates[i].Source == source {
+			if confidence > d.candidates[i].Confidence {
+				d.candidates[i].Confidence = confidence
+			}
+			return
+		}
+	}
+	d.candidates = append(d.candidates, VersionCandidate{
+		Version:    version,
+		Source:     source,
+		Confidence: confidence,
+	})
+}
+
+func addFirstVersionMatch(d *detection, re *regexp.Regexp, input, source string, confidence int) {
+	if m := re.FindStringSubmatch(input); m != nil {
+		addVersionCandidate(d, m[1], source, confidence)
+	}
+}
+
+func versionPrecision(version string) int {
+	v, ok := parsePHPVersion(version)
+	if !ok {
+		return 0
+	}
+	if v.hasPatch {
+		return 3
+	}
+	return 2
+}
+
+func sameVersionBranch(a, b string) bool {
+	av, aok := parsePHPVersion(a)
+	bv, bok := parsePHPVersion(b)
+	return aok && bok && av.major == bv.major && av.minor == bv.minor
+}
+
+// selectVersion ranks observations by source confidence and precision. A
+// header may expose only "8.4", so a slightly weaker source that gives the
+// full 8.4.27 patch level for the same branch is allowed to complete it.
+func selectVersion(d *detection) {
+	if len(d.candidates) == 0 {
+		return
+	}
+
+	best := d.candidates[0]
+	for _, candidate := range d.candidates[1:] {
+		if candidate.Confidence > best.Confidence ||
+			(candidate.Confidence == best.Confidence && versionPrecision(candidate.Version) > versionPrecision(best.Version)) {
+			best = candidate
+		}
+	}
+
+	if versionPrecision(best.Version) < 3 {
+		for _, candidate := range d.candidates {
+			if versionPrecision(candidate.Version) > versionPrecision(best.Version) &&
+				candidate.Confidence >= best.Confidence-20 &&
+				sameVersionBranch(candidate.Version, best.Version) {
+				best = candidate
+			}
+		}
+	}
+
+	d.version = best.Version
+	d.versionSrc = best.Source
+	for _, candidate := range d.candidates {
+		d.evidence = appendUnique(d.evidence,
+			fmt.Sprintf("PHP-version %s via %s (styrka %d)", candidate.Version, candidate.Source, candidate.Confidence))
+	}
+}
+
+func versionNeedsConfirmation(version string) bool {
+	if strings.TrimSpace(version) == "" {
+		return true
+	}
+	v, ok := parsePHPVersion(version)
+	return !ok || !v.hasPatch
+}
+
+// phpVersionFromZend maps the Zend Engine version reported by phpinfo to the
+// PHP release it belongs to. Zend 4.3.x ships with PHP 8.3.x, Zend 3.4.x with
+// PHP 7.4.x and Zend 2.6.x with PHP 5.6.x. Treating the Zend number as a PHP
+// version would incorrectly classify PHP 8.3.14 as PHP 4.3.14.
+func phpVersionFromZend(zend string) (string, bool) {
+	v, ok := parsePHPVersion(zend)
+	if !ok {
+		return "", false
+	}
+	var major int
+	switch v.major {
+	case 1, 2:
+		major = v.major + 3
+	case 3, 4:
+		major = v.major + 4
+	default:
+		return "", false
+	}
+	if v.hasPatch {
+		return fmt.Sprintf("%d.%d.%d", major, v.minor, v.patch), true
+	}
+	return fmt.Sprintf("%d.%d", major, v.minor), true
+}
 
 var phpSessionCookies = []string{
 	"phpsessid",
@@ -463,27 +668,35 @@ func analyzePage(p *pageInfo) detection {
 	d.poweredBy = p.headers.Get("X-Powered-By")
 
 	headerVersionCandidates := []struct {
-		header string
-		source string
+		header     string
+		source     string
+		confidence int
 	}{
-		{"X-Powered-By", "X-Powered-By"},
-		{"X-PHP-Version", "X-PHP-Version"},
-		{"X-PHP-Engine", "X-PHP-Engine"},
-		{"Server", "Server"},
+		{"X-PHP-Version", "X-PHP-Version", 100},
+		{"X-Powered-By", "X-Powered-By", 95},
+		{"X-PHP-Engine", "X-PHP-Engine", 90},
+		{"X-Server-Powered-By", "X-Server-Powered-By", 85},
+		{"X-Backend-Server", "X-Backend-Server", 85},
+		{"Server", "Server", 80},
 	}
 	for _, candidate := range headerVersionCandidates {
 		value := p.headers.Get(candidate.header)
 		if value == "" {
 			continue
 		}
+		matched := false
 		if m := phpHeaderVersionRe.FindStringSubmatch(value); m != nil {
-			d.php = true
-			d.version = cleanVersion(m[1])
-			d.versionSrc = candidate.source
-			d.evidence = appendUnique(d.evidence, candidate.header+": "+truncate(value, 160))
-			break
+			addVersionCandidate(&d, m[1], candidate.source, candidate.confidence)
+			matched = true
+		} else if candidate.header == "X-PHP-Version" || candidate.header == "X-PHP-Engine" {
+			// These headers sometimes contain only the bare version, for
+			// example "8.3.36" or "8.3.36-1ubuntu2".
+			if m := phpVersionOnlyRe.FindStringSubmatch(value); m != nil {
+				addVersionCandidate(&d, m[1], candidate.source, candidate.confidence)
+				matched = true
+			}
 		}
-		if (candidate.header == "X-Powered-By" || candidate.header == "Server") && strings.Contains(strings.ToUpper(value), "PHP") {
+		if matched || strings.Contains(strings.ToUpper(value), "PHP") {
 			d.php = true
 			d.evidence = appendUnique(d.evidence, candidate.header+": "+truncate(value, 160))
 		}
@@ -503,6 +716,7 @@ func analyzePage(p *pageInfo) detection {
 
 	body := string(p.body)
 	lower := strings.ToLower(body)
+	text := htmlToText(body)
 
 	if uploadFormRe.MatchString(body) || fileInputRe.MatchString(body) {
 		d.uploadForm = true
@@ -515,45 +729,30 @@ func analyzePage(p *pageInfo) detection {
 		d.evidence = appendUnique(d.evidence, fmt.Sprintf("%d PHP-länkar/referenser i HTML-svaret", n))
 	}
 
-	if m := phpErrorRe.FindString(body); m != "" {
+	if m := phpErrorRe.FindString(text); m != "" {
 		d.php = true
 		d.evidence = appendUnique(d.evidence, "PHP-felmeddelande i svaret: "+truncate(strings.Join(strings.Fields(m), " "), 180))
 	}
 
-	versionPatterns := []*regexp.Regexp{
-		phpInfoTableRe,
-		phpInfoVersionRe,
-		phpPoweredVersion,
-		phpGeneratorRe,
-		phpVersionInTitle,
-		phpVersionInScript,
-		phpZendVersionRe,
-		phpInfoConfigRe,
-		phpStandaloneRe,
-	}
-	if d.version == "" {
-		for _, re := range versionPatterns {
-			if m := re.FindStringSubmatch(body); m != nil {
-				d.php = true
-				d.version = cleanVersion(m[1])
-				d.versionSrc = "HTML-svar"
-				d.evidence = appendUnique(d.evidence, "PHP-version anges i HTML-svaret: "+d.version)
-				break
-			}
-		}
-	} else if len(d.version) <= 3 {
-		// A header may expose only "8.4". Look for a more precise patch
-		// level in the body without replacing an already exact version.
-		for _, re := range versionPatterns {
-			if m := re.FindStringSubmatch(body); m != nil {
-				if full := cleanVersion(m[1]); len(full) > len(d.version) {
-					d.version = full
-					d.evidence = appendUnique(d.evidence, "Mer fullständig PHP-version hittades i HTML-svaret: "+d.version)
-				}
-				break
-			}
+	// Collect every independent version observation instead of stopping at the
+	// first match. This lets phpinfo, headers and framework debug pages
+	// corroborate or contradict each other. HTML tags are stripped for the
+	// text-oriented patterns so phpinfo tables work regardless of markup.
+	addFirstVersionMatch(&d, phpInfoVersionRe, text, "HTML: PHP Version", 95)
+	addFirstVersionMatch(&d, phpPoweredVersion, text, "HTML: Powered by PHP", 90)
+	addFirstVersionMatch(&d, phpSlashVersionRe, body, "HTML: PHP/version", 88)
+	addFirstVersionMatch(&d, phpGeneratorRe, body, "HTML: meta generator", 85)
+	addFirstVersionMatch(&d, phpGeneratorAltRe, body, "HTML: meta generator", 85)
+	addFirstVersionMatch(&d, phpZendOpcacheRe, text, "HTML: Zend OPcache", 78)
+	if m := phpZendVersionRe.FindStringSubmatch(text); m != nil {
+		if converted, ok := phpVersionFromZend(m[1]); ok {
+			addVersionCandidate(&d, converted, "HTML: Zend Engine (omräknad)", 75)
 		}
 	}
+	addFirstVersionMatch(&d, phpVersionInScript, body, "HTML: PHP_VERSION", 70)
+	addFirstVersionMatch(&d, phpJSONVersionRe, body, "HTML: JSON-fält", 68)
+	addFirstVersionMatch(&d, phpVersionInTitle, body, "HTML: sidtitel", 65)
+	addFirstVersionMatch(&d, phpStandaloneRe, text, "HTML: PHP-version i text", 55)
 
 	if app := detectApp(lower, p.headers); app != "" {
 		d.php = true
@@ -571,6 +770,7 @@ func analyzePage(p *pageInfo) detection {
 		d.evidence = appendUnique(d.evidence, "CDN/WAF: "+isCDN(p.headers))
 	}
 
+	selectVersion(&d)
 	return d
 }
 
@@ -624,10 +824,13 @@ func mergeDetection(dst *detection, src detection) {
 		return
 	}
 	dst.php = true
-	if dst.version == "" && src.version != "" {
-		dst.version = src.version
-		dst.versionSrc = src.versionSrc
+	for _, candidate := range src.candidates {
+		addVersionCandidate(dst, candidate.Version, candidate.Source, candidate.Confidence)
 	}
+	if src.version != "" && len(src.candidates) == 0 {
+		addVersionCandidate(dst, src.version, src.versionSrc, 50)
+	}
+	selectVersion(dst)
 	if dst.app == "" && src.app != "" {
 		dst.app = src.app
 	}

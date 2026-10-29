@@ -342,8 +342,8 @@
         </label>
       </div>
       <label class="check"><input type="checkbox" id="followRedirects" checked> Följ omdirigeringar</label>
-      <label class="check"><input type="checkbox" id="deepCheck" checked> Utökad kontroll
-        <span class="tip" title="Gör ett fåtal extra GET-anrop per sajt (index.php, phpinfo.php, info.php och phpversion.php) för att upptäcka PHP när startsidan inte avslöjar det. Stoppar så snart en version hittats.">ⓘ</span>
+      <label class="check"><input type="checkbox" id="deepCheck" checked> Djup versionanalys
+        <span class="tip" title="Använder cookies som PHP-indikator och jämför versioner från svarshuvuden, HTML, phpinfo-liknande sidor och vanliga diagnostiksökvägar som index.php, phpinfo.php, info.php, php-info.php, phpversion.php och test.php. Vid behov provas även webbplatsens rot. Stoppar så snart en fullständig version hittats.">ⓘ</span>
       </label>
       <label class="check"><input type="checkbox" id="insecureTls"> Ignorera TLS-fel</label>
       <details class="advanced">
@@ -621,6 +621,8 @@
       result.input, result.finalUrl, result.phpVersion, result.server, result.poweredBy,
       result.app, result.verdictLabel, result.error,
       ...(result.evidence || []),
+      ...(result.versionCandidates || []).flatMap((candidate) => [candidate.version, candidate.source]),
+      ...(result.deepChecks || []).flatMap((check) => [check.url, check.phpVersion, check.versionSource, check.error]),
       ...(result.advisories || []).flatMap((a) => [a.cve, a.title, a.label, a.detail, a.recommendation, ...(a.evidence || [])]),
     ].join(" ").toLowerCase();
     return haystack.includes(state.query);
@@ -671,6 +673,18 @@
       ? `<div class="evidence"><h4>HTTP-huvuden</h4><ul>${Object.entries(result.responseHeaders).map(([name, value]) => `<li><code>${escapeHTML(name)}</code>: ${escapeHTML(value)}</li>`).join("")}</ul></div>`
       : "";
 
+    const versionSources = (result.versionCandidates || []).length
+      ? `<div class="evidence"><h4>PHP-versionkällor</h4><ul>${result.versionCandidates.map((candidate) => `<li><code>${escapeHTML(candidate.version)}</code> via ${escapeHTML(candidate.source)} (styrka ${escapeHTML(candidate.confidence)})</li>`).join("")}</ul></div>`
+      : "";
+
+    const deepChecks = (result.deepChecks || []).length
+      ? `<div class="evidence"><h4>Djupkontroller</h4><ul>${result.deepChecks.map((check) => {
+          const status = check.error ? `fel: ${escapeHTML(check.error)}` : `HTTP ${escapeHTML(check.statusCode || "–")}`;
+          const version = check.phpVersion ? ` · PHP ${escapeHTML(check.phpVersion)}` : "";
+          return `<li><code>${escapeHTML(check.url)}</code> · ${status}${version}</li>`;
+        }).join("")}</ul></div>`
+      : "";
+
     const advisories = (result.advisories || []).map((a) => `
       <div class="advisory ${a.status === "possible" ? "possible" : ""}">
         <h4>${escapeHTML(a.cve)} · ${escapeHTML(a.title)} – ${escapeHTML(a.label)}</h4>
@@ -685,6 +699,8 @@
       </div>
       ${result.detail ? `<div class="detail-note">${escapeHTML(result.detail)}</div>` : ""}
       ${advisories}
+      ${versionSources}
+      ${deepChecks}
       ${evidence}
       ${headers}
     `;
@@ -1038,7 +1054,7 @@
       tool: "PHP2Shell Checker",
       version: VERSION,
       cves: ["CVE-2026-109618", "CVE-2026-109619", "CVE-2026-115560"],
-      methodology: "Icke-invasiv kontroll med ordinarie HTTP GET-förfrågningar. Inga exploit-payloads skickades, inga filer laddades upp och ingen åtkomst etablerades. Ingen ändring gjordes på målservern.",
+      methodology: "Icke-invasiv kontroll med ordinarie HTTP GET-förfrågningar. Djupanalysen kombinerar PHP-indikatorer från cookies med versioner från svarshuvuden, HTML, phpinfo-liknande sidor och ett fåtal vanliga diagnostiksökvägar. Inga exploit-payloads skickades, inga filer laddades upp och ingen åtkomst etablerades. Ingen ändring gjordes på målservern.",
       limitation: "Resultatet är en indikation på PHP-version och konfiguration, inte ett bevis på att sårbarheten är utnyttjad eller utnyttjadbar.",
     };
   }
@@ -1077,6 +1093,17 @@
         ? `<h4>HTTP-huvuden</h4><table class="headers"><tbody>${Object.entries(r.responseHeaders).map(([name, value]) => `<tr><th>${escapeHTML(name)}</th><td>${escapeHTML(value)}</td></tr>`).join("")}</tbody></table>`
         : "";
 
+      const versionSources = (r.versionCandidates || []).length
+        ? `<h4>PHP-versionkällor</h4><ul>${r.versionCandidates.map((candidate) => `<li><code>${escapeHTML(candidate.version)}</code> via ${escapeHTML(candidate.source)} (styrka ${escapeHTML(candidate.confidence)})</li>`).join("")}</ul>`
+        : "";
+
+      const deepChecks = (r.deepChecks || []).length
+        ? `<h4>Djupkontroller</h4><table class="headers"><tbody>${r.deepChecks.map((check) => {
+            const detail = check.error ? `fel: ${check.error}` : `HTTP ${check.statusCode || "–"}${check.phpVersion ? ` · PHP ${check.phpVersion}` : ""}`;
+            return `<tr><th>${escapeHTML(check.url)}</th><td>${escapeHTML(detail)}</td></tr>`;
+          }).join("")}</tbody></table>`
+        : "";
+
       return `
         <section class="host">
           <h3><span class="num">${index + 1}.</span> ${escapeHTML(r.input)}</h3>
@@ -1084,6 +1111,8 @@
           ${r.detail ? `<p>${escapeHTML(r.detail)}</p>` : ""}
           <dl>${fields.map(([label, value]) => `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd></div>`).join("")}</dl>
           ${advisories}
+          ${versionSources}
+          ${deepChecks}
           ${(r.evidence || []).length ? `<h4>Bevis</h4><ul>${r.evidence.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>` : ""}
           ${headers}
         </section>`;
@@ -1236,12 +1265,15 @@
     if (state.results.length === 0) return toast("Inga resultat att exportera.", true);
     const headers = [
       "Webbplats", "Slutlig URL", "HTTP-status", "PHP", "PHP-version", "Versionkälla",
+      "PHP-versionkällor", "Djupkontroller",
       "Bedömning", "Allvarlighet", "Rättad version", "Server", "X-Powered-By", "Applikation",
       "PHP-länkar", "Svarstid (ms)", "Detaljer", "CVE-2026-115560", "Rekommendation (CVE-2026-115560)",
       "Bevis", "Fel", "Kontrollerad", "Serverns IP", "Svarsskropp SHA-256", "HTTP-huvuden"
     ];
     const rows = allSortedResults().map((r) => [
       r.input, r.finalUrl, r.statusCode, r.phpDetected ? "Ja" : "Nej", r.phpVersion, r.versionSource,
+      (r.versionCandidates || []).map((candidate) => `${candidate.version} (${candidate.source}, styrka ${candidate.confidence})`).join(" | "),
+      (r.deepChecks || []).map((check) => `${check.url} ${check.error ? `fel: ${check.error}` : `HTTP ${check.statusCode || "–"}${check.phpVersion ? ` PHP ${check.phpVersion}` : ""}`}`).join(" | "),
       r.verdictLabel, r.verdict, r.fixedIn, r.server, r.poweredBy, r.app,
       r.phpLinks, r.elapsedMs, r.detail,
       (r.advisories || []).map((a) => `${a.cve}: ${a.label}`).join(" | "),
