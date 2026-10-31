@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Go 1.27 or newer
+- Go 1.27.3 or newer (the module pins `toolchain go1.27.3`)
 - `zip`, `unzip`, `gzip`, `base64` and `sha256sum` for release builds
 - PowerShell on Windows for packaged verification scripts
 
@@ -51,13 +51,21 @@ go test -run '^$' -bench BenchmarkWorstCase10000TargetsDeepCheck -benchtime=1x
    ./build.sh
    ```
 
-6. Verify the bundle:
+6. On Windows, sign the EXE before packaging:
+
+   ```powershell
+   .\sign-windows.ps1 -Path .\release\PHP2Shell-Checker-Windows-x64.exe -Thumbprint <thumbprint>
+   ```
+
+   See [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
+
+7. Verify the bundle:
 
    ```bash
    ./verify-release.sh
    ```
 
-7. Commit the source, documentation and rebuilt `release/` artifacts together.
+8. Commit the source, documentation and rebuilt `release/` artifacts together.
 
 Do not reuse an old release binary with a new version string. Rebuild both
 Linux and Windows binaries from the same commit.
@@ -69,6 +77,11 @@ Linux and Windows binaries from the same commit.
 - New detection heuristics should include a regression test.
 - Keep evidence fields additive so older JSON/CSV consumers keep working.
 - Prefer standard-library dependencies unless there is a strong reason.
+
+## License
+
+By contributing, you agree that your contributions are licensed under the
+project's [MIT License](LICENSE).
 
 ## Reporting security issues
 

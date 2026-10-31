@@ -28,7 +28,7 @@ Example response:
 ```json
 {
   "apiVersion": 1,
-  "version": "1.3.0",
+  "version": "1.4.0",
   "fixedVersions": {
     "8.2": "8.2.35",
     "8.3": "8.3.36",
@@ -75,7 +75,8 @@ Request body:
     "followRedirects": true,
     "insecureTls": false,
     "deepCheck": true,
-    "userAgent": "PHP2ShellChecker/1.3.0 (defensive vulnerability check)",
+    "allowPrivateTargets": false,
+    "userAgent": "PHP2ShellChecker/1.4.0 (defensive vulnerability check)",
     "proxyUrl": "",
     "headers": {
       "Authorization": "Bearer example"
@@ -98,6 +99,7 @@ Limits and defaults:
 | `followRedirects` | false unless set | boolean |
 | `insecureTls` | false unless set | boolean |
 | `deepCheck` | false unless set | boolean |
+| `allowPrivateTargets` | false | boolean |
 | `userAgent` | application default | max 512 bytes |
 | `headers` | empty | object of request headers |
 | `cookies` | empty | object of cookie name/value pairs |
@@ -108,10 +110,17 @@ Limits and defaults:
 starting at 500 ms, capped at 10 seconds. `Retry-After` values are capped at
 30 seconds.
 
+By default, loopback, RFC1918, link-local, cloud-metadata, carrier-grade NAT
+and reserved test/documentation ranges are blocked for both the initial target
+and redirects. Set `allowPrivateTargets` to `true` only for internal systems
+covered by an explicit authorization. Name resolution is validated at request
+time; an egress firewall remains the strongest defense against DNS rebinding.
+
 Reserved/hop-by-hop request headers such as `Host`, `Content-Length`,
 `Connection` and `Transfer-Encoding` are dropped. Invalid header names, CR/LF
 values and invalid cookie pairs are also dropped. Header and cookie values are
-never echoed into result evidence.
+never echoed into result evidence. Custom headers and cookies are stripped when
+a redirect leaves the original origin.
 
 The request body is limited to 5 MiB and at most 10,000 unique targets are
 accepted.

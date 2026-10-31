@@ -350,6 +350,9 @@
         <span class="tip" title="Använder cookies som PHP-indikator och jämför versioner från svarshuvuden, HTML, phpinfo-liknande sidor och vanliga diagnostiksökvägar som index.php, phpinfo.php, info.php, php-info.php, phpversion.php och test.php. Vid behov provas även webbplatsens rot. Stoppar så snart en fullständig version hittats.">ⓘ</span>
       </label>
       <label class="check"><input type="checkbox" id="insecureTls"> Ignorera TLS-fel</label>
+      <label class="check"><input type="checkbox" id="allowPrivateTargets"> Tillåt privata mål
+        <span class="tip" title="Tillåter loopback, RFC1918, link-local, metadata-adresser och andra reserverade nät. Används endast för interna system som du har tillstånd att skanna.">ⓘ</span>
+      </label>
       <details class="advanced">
         <summary>Avancerat</summary>
         <label>User-Agent
@@ -528,7 +531,7 @@
 
   const OPTION_IDS = [
     "timeout", "concurrency", "delay", "maxRetries", "followRedirects", "deepCheck",
-    "insecureTls", "userAgent", "proxyUrl", "extraHeaders", "extraCookies"
+    "insecureTls", "allowPrivateTargets", "userAgent", "proxyUrl", "extraHeaders", "extraCookies"
   ];
 
   function escapeHTML(value) {
@@ -619,6 +622,7 @@
       followRedirects: $("followRedirects").checked,
       deepCheck: $("deepCheck").checked,
       insecureTls: $("insecureTls").checked,
+      allowPrivateTargets: $("allowPrivateTargets").checked,
       userAgent: $("userAgent").value.trim() || `PHP2ShellChecker/${VERSION} (defensive vulnerability check)`,
       proxyUrl: $("proxyUrl").value.trim(),
       headers: parseHeaderLines($("extraHeaders").value),
@@ -639,6 +643,7 @@
         followRedirects: opts.followRedirects,
         deepCheck: opts.deepCheck,
         insecureTls: opts.insecureTls,
+        allowPrivateTargets: opts.allowPrivateTargets,
         userAgent: opts.userAgent,
       };
       localStorage.setItem("php2shell-options", JSON.stringify(persistent));
@@ -656,6 +661,7 @@
       if (typeof saved.followRedirects === "boolean") $("followRedirects").checked = saved.followRedirects;
       if (typeof saved.deepCheck === "boolean") $("deepCheck").checked = saved.deepCheck;
       if (typeof saved.insecureTls === "boolean") $("insecureTls").checked = saved.insecureTls;
+      if (typeof saved.allowPrivateTargets === "boolean") $("allowPrivateTargets").checked = saved.allowPrivateTargets;
       if (saved.userAgent) $("userAgent").value = saved.userAgent;
       // Rewrite old entries so credentials saved by older versions are removed.
       saveOptions();

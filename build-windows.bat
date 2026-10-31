@@ -15,6 +15,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+if defined WINDOWS_CERT_THUMBPRINT (
+  echo Signerar EXE...
+  powershell -NoProfile -ExecutionPolicy Bypass -File sign-windows.ps1 -Path "release\PHP2Shell-Checker-Windows-x64.exe" -Thumbprint "%WINDOWS_CERT_THUMBPRINT%"
+  if errorlevel 1 (
+    echo Signeringen misslyckades.
+    exit /b 1
+  )
+)
+
 echo Skapar EXE-kontrollsumma...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$h=(Get-FileHash 'release\PHP2Shell-Checker-Windows-x64.exe' -Algorithm SHA256).Hash.ToLower(); $h + '  PHP2Shell-Checker-Windows-x64.exe' | Set-Content -Encoding ASCII 'release\PHP2Shell-Checker-Windows-x64.exe.sha256'"
@@ -23,9 +32,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
+copy /Y LICENSE release\LICENSE >nul
+copy /Y THIRD_PARTY_NOTICES release\THIRD_PARTY_NOTICES >nul
+
 echo Paketerar ZIP...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "Compress-Archive -Force -Path 'release\PHP2Shell-Checker-Windows-x64.exe','release\PHP2Shell-Checker-Windows-x64.exe.sha256','release\verify-windows.ps1','release\README.txt' -DestinationPath 'release\PHP2Shell-Checker-Windows-x64.zip'"
+  "Compress-Archive -Force -Path 'release\PHP2Shell-Checker-Windows-x64.exe','release\PHP2Shell-Checker-Windows-x64.exe.sha256','release\verify-windows.ps1','release\README.txt','release\LICENSE','release\THIRD_PARTY_NOTICES' -DestinationPath 'release\PHP2Shell-Checker-Windows-x64.zip'"
 if errorlevel 1 (
   echo Kunde inte skapa ZIP.
   exit /b 1

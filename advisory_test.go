@@ -83,7 +83,7 @@ func TestScanAddsUploadProgressAdvisory(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
 
 	// The PHP2Shell verdict must stay independent from the new advisory.
 	if result.Verdict != "safe" {
@@ -111,7 +111,7 @@ func TestScanPHPWithoutSessionsOrUploadsGetsReviewAdvisory(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
 	if len(result.Advisories) != 1 {
 		t.Fatalf("Advisories = %d, want 1: %#v", len(result.Advisories), result.Advisories)
 	}
@@ -126,7 +126,7 @@ func TestScanStaticSiteHasNoAdvisory(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
 	if len(result.Advisories) != 0 {
 		t.Fatalf("Advisories = %d, want 0: %#v", len(result.Advisories), result.Advisories)
 	}

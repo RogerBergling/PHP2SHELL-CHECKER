@@ -19,6 +19,8 @@ sha256sum -c PHP2Shell-Checker-Windows-x64.exe.sha256
 
 echo "Verifierar ZIP..."
 unzip -tq PHP2Shell-Checker-Windows-x64.zip
+unzip -l PHP2Shell-Checker-Windows-x64.zip | grep -q 'LICENSE'
+unzip -l PHP2Shell-Checker-Windows-x64.zip | grep -q 'THIRD_PARTY_NOTICES'
 
 echo "Verifierar base64/gzip-reservfil..."
 base64 -d PHP2Shell-Checker-Windows-x64.exe.gz.b64 | gzip -t

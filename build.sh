@@ -36,6 +36,7 @@ chmod +x "release/PHP2Shell-Checker-Linux-x64"
 # och EXE-hashen följer med så att ZIP-filen kan kontrolleras direkt efter
 # extrahering, även utan SHA256SUMS.txt.
 rm -f "release/PHP2Shell-Checker-Windows-x64.zip"
+cp LICENSE THIRD_PARTY_NOTICES release/
 (
   cd release
   sha256sum "PHP2Shell-Checker-Windows-x64.exe" > "PHP2Shell-Checker-Windows-x64.exe.sha256"
@@ -43,7 +44,9 @@ rm -f "release/PHP2Shell-Checker-Windows-x64.zip"
     "PHP2Shell-Checker-Windows-x64.exe" \
     "PHP2Shell-Checker-Windows-x64.exe.sha256" \
     "verify-windows.ps1" \
-    "README.txt"
+    "README.txt" \
+    "LICENSE" \
+    "THIRD_PARTY_NOTICES"
 )
 
 # Extra reservväg: base64-kodad gzip av EXE-filen. Text klarar sig förbi
@@ -59,7 +62,9 @@ gzip -9 -n -c "release/PHP2Shell-Checker-Windows-x64.exe" \
     "PHP2Shell-Checker-Windows-x64.exe" \
     "PHP2Shell-Checker-Windows-x64.exe.sha256" \
     "PHP2Shell-Checker-Windows-x64.zip" \
-    "PHP2Shell-Checker-Windows-x64.exe.gz.b64" > SHA256SUMS.txt
+    "PHP2Shell-Checker-Windows-x64.exe.gz.b64" \
+    "LICENSE" \
+    "THIRD_PARTY_NOTICES" > SHA256SUMS.txt
 )
 
 echo

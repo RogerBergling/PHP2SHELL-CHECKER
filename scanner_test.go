@@ -4,17 +4,30 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
+type testRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f testRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 func intPtr(value int) *int {
 	return &value
+}
+
+func newLocalScanner(opts ScanOptions) *Scanner {
+	opts.AllowPrivateTargets = true
+	return NewScanner(opts)
 }
 
 func TestAssessPHPVersion(t *testing.T) {
@@ -196,7 +209,7 @@ func TestValidateProxyURL(t *testing.T) {
 }
 
 func TestConfiguredProxy(t *testing.T) {
-	scanner := NewScanner(ScanOptions{ProxyURL: "http://proxy.example:8080", MaxRetries: intPtr(0)})
+	scanner := newLocalScanner(ScanOptions{ProxyURL: "http://proxy.example:8080", MaxRetries: intPtr(0)})
 	transport, ok := scanner.client.Transport.(*http.Transport)
 	if !ok {
 		t.Fatal("scanner transport is not *http.Transport")
@@ -210,10 +223,192 @@ func TestConfiguredProxy(t *testing.T) {
 		t.Fatalf("proxy = %v, err = %v; want http://proxy.example:8080", proxy, err)
 	}
 
-	direct := NewScanner(ScanOptions{ProxyURL: "direct", MaxRetries: intPtr(0)})
+	direct := newLocalScanner(ScanOptions{ProxyURL: "direct", MaxRetries: intPtr(0)})
 	directTransport := direct.client.Transport.(*http.Transport)
 	if directTransport.Proxy != nil {
 		t.Fatal("direct proxy function is set, want nil")
+	}
+}
+
+func TestScanBlocksPrivateTargetByDefault(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = io.WriteString(w, "<html>ok</html>")
+	}))
+	defer server.Close()
+
+	result := NewScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		DelayMS:         0,
+		MaxRetries:      intPtr(0),
+	}).Scan(context.Background(), server.URL)
+
+	if result.Verdict != "error" {
+		t.Fatalf("Verdict = %q, want error", result.Verdict)
+	}
+	if !strings.Contains(result.Error, "privat") {
+		t.Fatalf("Error = %q, want a private-target message", result.Error)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("requests = %d, want 0 because the target was blocked", got)
+	}
+}
+
+func TestScanAllowsPrivateTargetWhenEnabled(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = io.WriteString(w, "<html>ok</html>")
+	}))
+	defer server.Close()
+
+	result := newLocalScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		DelayMS:         0,
+		MaxRetries:      intPtr(0),
+	}).Scan(context.Background(), server.URL)
+
+	if result.Verdict == "error" {
+		t.Fatalf("Verdict = error, want a completed scan: %s", result.Error)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
+	}
+}
+
+func TestValidateTargetURL(t *testing.T) {
+	ctx := context.Background()
+	blocked := []string{
+		"http://127.0.0.1/",
+		"http://10.1.2.3/",
+		"http://172.16.0.1/",
+		"http://192.168.1.1/",
+		"http://169.254.169.254/latest/meta-data",
+		"http://100.64.0.1/",
+		"http://0.1.2.3/",
+		"http://240.0.0.1/",
+		"http://[::1]/",
+		"http://[fc00::1]/",
+		"http://[fe80::1]/",
+		"http://[2001:db8::1]/",
+	}
+	for _, raw := range blocked {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", raw, err)
+		}
+		if err := validateTargetURL(ctx, u); !errors.Is(err, errBlockedTarget) {
+			t.Fatalf("validateTargetURL(%q) = %v, want errBlockedTarget", raw, err)
+		}
+	}
+
+	for _, raw := range []string{"http://8.8.8.8/", "http://[2001:4860:4860::8888]/"} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", raw, err)
+		}
+		if err := validateTargetURL(ctx, u); err != nil {
+			t.Fatalf("validateTargetURL(%q) = %v, want nil", raw, err)
+		}
+	}
+}
+
+func TestScanBlocksRedirectToPrivateTarget(t *testing.T) {
+	scanner := NewScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		DelayMS:         0,
+		MaxRetries:      intPtr(0),
+	})
+	scanner.client.Transport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusFound,
+			Header:     http.Header{"Location": {"http://127.0.0.1/"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+			Request:    req,
+		}, nil
+	})
+
+	result := scanner.Scan(context.Background(), "http://8.8.8.8/")
+	if result.Verdict != "error" {
+		t.Fatalf("Verdict = %q, want error", result.Verdict)
+	}
+	if !strings.Contains(result.Error, "privat") {
+		t.Fatalf("Error = %q, want a private-target message", result.Error)
+	}
+}
+
+func TestRedirectDropsCustomHeadersAcrossOrigins(t *testing.T) {
+	gotHeaders := make(chan http.Header, 1)
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeaders <- r.Header.Clone()
+		_, _ = io.WriteString(w, "<html>ok</html>")
+	}))
+	defer attacker.Close()
+
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attacker.URL, http.StatusFound)
+	}))
+	defer target.Close()
+
+	scanner := newLocalScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		DelayMS:         0,
+		MaxRetries:      intPtr(0),
+		Headers:         map[string]string{"X-API-Key": "secret"},
+		Cookies:         map[string]string{"session": "secret"},
+	})
+	scanner.Scan(context.Background(), target.URL)
+
+	headers := <-gotHeaders
+	if got := headers.Get("X-API-Key"); got != "" {
+		t.Fatalf("X-API-Key = %q, want it stripped on a cross-origin redirect", got)
+	}
+	if got := headers.Get("Cookie"); got != "" {
+		t.Fatalf("Cookie = %q, want it stripped on a cross-origin redirect", got)
+	}
+	if got := headers.Get("Referer"); got != "" {
+		t.Fatalf("Referer = %q, want it stripped on a cross-origin redirect", got)
+	}
+}
+
+func TestRedirectKeepsCustomHeadersWithinSameOrigin(t *testing.T) {
+	gotHeaders := make(chan http.Header, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/finish" {
+			gotHeaders <- r.Header.Clone()
+			_, _ = io.WriteString(w, "<html>ok</html>")
+			return
+		}
+		http.Redirect(w, r, "/finish", http.StatusFound)
+	}))
+	defer server.Close()
+
+	scanner := newLocalScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		DelayMS:         0,
+		MaxRetries:      intPtr(0),
+		Headers:         map[string]string{"X-API-Key": "secret"},
+		Cookies:         map[string]string{"session": "secret"},
+	})
+	scanner.Scan(context.Background(), server.URL)
+
+	headers := <-gotHeaders
+	if got := headers.Get("X-API-Key"); got != "secret" {
+		t.Fatalf("X-API-Key = %q, want secret on a same-origin redirect", got)
+	}
+	if got := headers.Get("Cookie"); !strings.Contains(got, "session=secret") {
+		t.Fatalf("Cookie = %q, want session=secret on a same-origin redirect", got)
 	}
 }
 
@@ -245,7 +440,7 @@ func TestScanSendsCustomHeadersAndCookies(t *testing.T) {
 	}))
 	defer server.Close()
 
-	scanner := NewScanner(ScanOptions{
+	scanner := newLocalScanner(ScanOptions{
 		TimeoutSeconds:  3,
 		DeepCheck:       false,
 		FollowRedirects: true,
@@ -293,7 +488,7 @@ func TestScanRetries429And503(t *testing.T) {
 			}))
 			defer server.Close()
 
-			result := NewScanner(ScanOptions{
+			result := newLocalScanner(ScanOptions{
 				TimeoutSeconds:  3,
 				DeepCheck:       false,
 				FollowRedirects: true,
@@ -323,7 +518,7 @@ func TestScanRetryLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{
+	result := newLocalScanner(ScanOptions{
 		TimeoutSeconds:  3,
 		DeepCheck:       false,
 		FollowRedirects: true,
@@ -386,7 +581,7 @@ func TestScanVulnerablePHP(t *testing.T) {
 	}))
 	defer server.Close()
 
-	scanner := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true})
+	scanner := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true})
 	result := scanner.Scan(context.Background(), server.URL)
 
 	if result.Verdict != "vulnerable" {
@@ -414,7 +609,7 @@ func TestScanFixedPHP(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true}).Scan(context.Background(), server.URL)
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true}).Scan(context.Background(), server.URL)
 	if result.Verdict != "safe" {
 		t.Fatalf("Verdict = %q, want safe", result.Verdict)
 	}
@@ -436,7 +631,7 @@ func TestScanCapturesEvidenceWithoutCookieValues(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
 	if result.RemoteIP == "" {
 		t.Fatal("RemoteIP is empty, want the address that answered")
 	}
@@ -466,7 +661,7 @@ func TestScanPHPWithoutVersion(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
 	if result.Verdict != "php_unknown" {
 		t.Fatalf("Verdict = %q, want php_unknown", result.Verdict)
 	}
@@ -485,7 +680,7 @@ func TestScanStaticSite(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), server.URL)
 	if result.Verdict != "not_php" {
 		t.Fatalf("Verdict = %q, want not_php", result.Verdict)
 	}
@@ -503,7 +698,7 @@ func TestScanDeepCheckFindsPHP(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0}).Scan(context.Background(), server.URL)
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0}).Scan(context.Background(), server.URL)
 	if !result.PHPDetected {
 		t.Fatal("PHPDetected = false, want true")
 	}
@@ -530,7 +725,7 @@ func TestScanDeepCheckUsesSiteSubdirectory(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0}).Scan(context.Background(), server.URL+"/app/")
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0}).Scan(context.Background(), server.URL+"/app/")
 	if !result.PHPDetected {
 		t.Fatal("PHPDetected = false, want true")
 	}
@@ -550,7 +745,7 @@ func TestScanDeepCheckCompletesIncompleteVersion(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0}).Scan(context.Background(), server.URL)
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0}).Scan(context.Background(), server.URL)
 	if result.PHPVersion != "8.4.27" {
 		t.Fatalf("PHPVersion = %q, want 8.4.27 from the phpinfo probe", result.PHPVersion)
 	}
@@ -568,7 +763,7 @@ func TestScanDeepCheckTreatsExtensionlessPathAsDirectory(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0}).Scan(context.Background(), server.URL+"/app")
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0}).Scan(context.Background(), server.URL+"/app")
 	if result.PHPVersion != "8.3.36" {
 		t.Fatalf("PHPVersion = %q, want 8.3.36 from /app/phpinfo.php", result.PHPVersion)
 	}
@@ -584,7 +779,7 @@ func TestScanDeepCheckFallsBackToDocumentRoot(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0}).Scan(context.Background(), server.URL+"/app/")
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0}).Scan(context.Background(), server.URL+"/app/")
 	if result.PHPVersion != "8.2.35" {
 		t.Fatalf("PHPVersion = %q, want 8.2.35 from the document root", result.PHPVersion)
 	}
@@ -611,7 +806,7 @@ func TestDeepCheckWorstCaseProbeCount(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0, MaxRetries: intPtr(0)}).Scan(context.Background(), server.URL+"/app/")
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0, MaxRetries: intPtr(0)}).Scan(context.Background(), server.URL+"/app/")
 	if result.PHPVersion != "" {
 		t.Fatalf("PHPVersion = %q, want empty", result.PHPVersion)
 	}
@@ -625,7 +820,7 @@ func TestScanConnectionError(t *testing.T) {
 	address := server.URL
 	server.Close()
 
-	result := NewScanner(ScanOptions{TimeoutSeconds: 2, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), address)
+	result := newLocalScanner(ScanOptions{TimeoutSeconds: 2, DeepCheck: false, FollowRedirects: true}).Scan(context.Background(), address)
 	if result.Verdict != "error" {
 		t.Fatalf("Verdict = %q, want error", result.Verdict)
 	}
@@ -635,7 +830,7 @@ func TestScanConnectionError(t *testing.T) {
 }
 
 func TestScanInvalidURL(t *testing.T) {
-	result := NewScanner(ScanOptions{}).Scan(context.Background(), "ftp://example.com")
+	result := newLocalScanner(ScanOptions{}).Scan(context.Background(), "ftp://example.com")
 	if result.Verdict != "error" {
 		t.Fatalf("Verdict = %q, want error", result.Verdict)
 	}

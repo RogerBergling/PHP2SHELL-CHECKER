@@ -1,4 +1,4 @@
-PHP2Shell Checker 1.3.0
+PHP2Shell Checker 1.4.0
 =======================
 
 Defensiv kontroll av PHP och PHP2Shell (CVE-2026-109618, CVE-2026-109619)
@@ -28,7 +28,9 @@ Kontrollera i denna ordning:
    Skriptet kontrollerar storlek, filhuvud och SHA-256. Om du bara
    laddade ner EXE-filen: ladda ner verify-windows.ps1 och
    PHP2Shell-Checker-Windows-x64.exe.sha256 fran release-mappen.
-2. EXE-filen ska vara 8 010 752 byte (cirka 7,5 MiB) i version 1.3.0.
+   Om en giltig Authenticode-signatur ska kravas, lagg till
+   -RequireSignature.
+2. EXE-filen ska vara 8 023 040 byte (cirka 7,5 MiB) i version 1.4.0.
    Ar den 0 byte eller bara nagra kilobyte har nedladdningen misslyckats.
 3. Avblockera filen: hogerklicka -> Egenskaper -> Avblockera, eller:
      Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
@@ -62,9 +64,13 @@ eller tryck Ctrl+C i terminalen.
 Kontrollsummor
 --------------
 SHA256SUMS.txt innehaller kontrollsummor for Linux-filen, Windows-filen,
-Windows-ZIP-filen och reservfilen (.gz.b64).
+EXE-hashen, Windows-ZIP-filen, reservfilen (.gz.b64) och licensfilerna.
 
 Viktigt
 -------
 Anvand endast pa system som du ager eller har tillstand att testa.
 Skannern exploaterar inte sarbarheten; den gor vanliga GET-forfragningar.
+
+Licens
+------
+MIT. Se LICENSE och THIRD_PARTY_NOTICES i detta paket.

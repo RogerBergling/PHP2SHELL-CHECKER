@@ -32,11 +32,12 @@ func (benchmarkRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 //	go test -run '^$' -bench BenchmarkWorstCase10000TargetsDeepCheck -benchtime=1x
 func BenchmarkWorstCase10000TargetsDeepCheck(b *testing.B) {
 	scanner := NewScanner(ScanOptions{
-		TimeoutSeconds:  3,
-		DeepCheck:       true,
-		FollowRedirects: true,
-		DelayMS:         0,
-		MaxRetries:      intPtr(0),
+		TimeoutSeconds:      3,
+		DeepCheck:           true,
+		FollowRedirects:     true,
+		DelayMS:             0,
+		MaxRetries:          intPtr(0),
+		AllowPrivateTargets: true,
 	})
 	scanner.client.Transport = benchmarkRoundTripper{}
 

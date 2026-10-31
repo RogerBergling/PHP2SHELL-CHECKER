@@ -7,8 +7,8 @@ binaries in `release/` should be replaced with the current release.
 
 | Version | Supported |
 | --- | --- |
-| 1.3.x | Yes |
-| 1.2.x and older | No |
+| 1.4.x | Yes |
+| 1.3.x and older | No |
 
 ## Reporting a vulnerability
 
@@ -33,6 +33,7 @@ secrets in the report.
 Relevant reports include, for example:
 
 - bypasses of the local token, Host or Origin checks,
+- bypasses of private-target blocking or redirect header stripping,
 - command or HTML injection in the UI or reports,
 - unsafe handling of scanned response data,
 - release-package tampering or checksum problems,

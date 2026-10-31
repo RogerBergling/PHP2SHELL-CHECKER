@@ -12,7 +12,7 @@ Skannern finns som fristående filer:
 
 Ingen Python-, Java- eller Go-installation behövs för att köra filerna.
 
-Mer dokumentation: [lokal API](docs/API.md) · [ändringslogg](CHANGELOG.md) · [säkerhetspolicy](SECURITY.md) · [utveckling](CONTRIBUTING.md).
+Mer dokumentation: [lokal API](docs/API.md) · [code signing](docs/CODE_SIGNING.md) · [supply chain](docs/SUPPLY_CHAIN.md) · [ändringslogg](CHANGELOG.md) · [säkerhetspolicy](SECURITY.md) · [utveckling](CONTRIBUTING.md) · [MIT-licens](LICENSE) · [tredjepartsnotiser](THIRD_PARTY_NOTICES).
 
 ## Snabbstart
 
@@ -26,7 +26,7 @@ Mer dokumentation: [lokal API](docs/API.md) · [ändringslogg](CHANGELOG.md) · 
 
 > Windows SmartScreen kan varna eftersom filen inte är koddignerad. Välj **Mer information → Kör ändå** om du själv har byggt eller hämtat filen från en betrodd källa. Samma gäller om Windows Defender eller ett annat antivirusprogram flaggar filen – lägg då till den som undantag endast om du litar på källan.
 
-> **Om Harmony EDR eller annat skyddsprogram blockerar filen:** EXE-filen är en osignerad Go-binär med låg spridning och kan därför klassas som misstänkt. Det åtgärdas inte med en kodändring. Låt IT-administratören verifiera SHA-256, godkänna filen i EDR:ens allowlist och skicka in en false-positive-rapport till skyddsleverantören. För bred distribution krävs code signing med ett betrott certifikat (EV-certifikat ger snabbare rykte). Signera aldrig med en egen certifikatkedja och försök inte kringgå EDR.
+> **Om Harmony EDR eller annat skyddsprogram blockerar filen:** EXE-filen är en osignerad Go-binär med låg spridning och kan därför klassas som misstänkt. Det åtgärdas inte med en kodändring. Låt IT-administratören verifiera SHA-256, godkänna filen i EDR:ens allowlist och skicka in en false-positive-rapport till skyddsleverantören. För bred distribution krävs code signing med ett betrott certifikat (EV-certifikat ger snabbare rykte). Signera aldrig med en egen certifikatkedja och försök inte kringgå EDR. Se [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
 #### Om Windows säger att filen är skadad
 
@@ -38,13 +38,13 @@ Kontrollera i denna ordning:
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\verify-windows.ps1
    ```
-   Skriptet visar storlek, första byte (`4D 5A` = giltig Windows-binär) och jämför SHA-256 med `SHA256SUMS.txt` eller EXE-filens `.sha256`. `verify-windows.ps1` och `.sha256`-filen finns i ZIP-filen. Om du bara hämtade EXE-filen kan du ladda ner dem från `release/`.
+   Skriptet visar storlek, första byte (`4D 5A` = giltig Windows-binär) och jämför SHA-256 med `SHA256SUMS.txt` eller EXE-filens `.sha256`. `verify-windows.ps1` och `.sha256`-filen finns i ZIP-filen. Om du bara hämtade EXE-filen kan du ladda ner dem från `release/`. Lägg till `-RequireSignature` om en giltig Authenticode-signatur måste krävas.
 2. **Jämför kontrollsumman manuellt.**
    ```powershell
    Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
    ```
    Hashvärdet ska stå i `release/SHA256SUMS.txt`. Stämmer det inte är filen ofullständigt nedladdad – ladda ner igen.
-3. **Kontrollera filstorleken.** `.exe`-filen ska vara **8 010 752 byte** (cirka 7,5 MiB) i version 1.3.0. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
+3. **Kontrollera filstorleken.** `.exe`-filen ska vara **8 023 040 byte** (cirka 7,5 MiB) i version 1.4.0. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
 4. **Avblockera filen.** Högerklicka → **Egenskaper** → kryssa i **Avblockera** (Unblock) → **OK**, eller:
    ```powershell
    Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
@@ -68,7 +68,7 @@ Kontrollera i denna ordning:
    cd PHP2SHELL-CHECKER
    .\build-windows.bat
    ```
-10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.3.0` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
+10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.4.0` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
 
 > **Smart App Control / S-läge:** Windows 11 kan blockera osignerade program. Kontrollera **Windows-säkerhet → App- och webbläsarkontroll**. Smart App Control kan stängas av om du litar på filen (det går inte att slå på igen utan ominstallation). Windows i **S-läge** kan bara köra program från Microsoft Store.
 
@@ -133,11 +133,16 @@ Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `ht
 | Följ omdirigeringar | På | Följer upp till 6 omdirigeringar. |
 | Djup versionanalys | På | Kombinerar PHP-indikatorer från cookies med versioner från svarshuvuden, HTML, phpinfo-liknande sidor och flera vanliga diagnostiksökvägar. Provar även webbplatsens rot om den aktuella katalogen inte ger en fullständig version. Stoppar så snart en fullständig version hittats, men kan innebära fler anrop och längre skanningstid. |
 | Ignorera TLS-fel | Av | Användbart för servrar med trasiga eller självsignerade certifikat. |
-| User-Agent | `PHP2ShellChecker/1.3.0 …` | Kan ändras om en sajt blockerar skannern. |
+| Tillåt privata mål | Av | Tillåter loopback, RFC1918, link-local, metadata och reserverade nät. Krävs för interna system. |
+| User-Agent | `PHP2ShellChecker/1.4.0 …` | Kan ändras om en sajt blockerar skannern. |
 | Proxy | Systemets inställning | `http://`, `https://`, `direct`, `none`, `env` eller tom. |
 | Egna headers/cookies | Tomt | Skickas med varje GET-förfrågan. Reserverade hop-by-hop-headers filtreras bort. |
 
 Headers, cookies och proxy-URL sparas inte i webbläsarens `localStorage`, eftersom de kan innehålla autentiseringsuppgifter.
+
+Privata, lokala och reserverade mål blockeras som standard, även vid
+omdirigering. Aktivera **Tillåt privata mål** endast för interna system som du
+har uttryckligt tillstånd att skanna.
 
 ## Bedömningar
 
@@ -220,13 +225,14 @@ Rapporterna beskriver uttryckligen att kontrollen är icke-invasiv: inga exploit
 ## Säkerhet och etik
 
 - Använd skannern **endast** på system som du äger eller har uttryckligt tillstånd att testa.
+- Privata, lokala och reserverade mål blockeras som standard, även vid omdirigering. **Tillåt privata mål** kräver uttryckligt tillstånd för de interna systemen.
 - Den lokala servern lyssnar bara på `127.0.0.1` och skyddas av en slumpmässig token per start.
 - Inga resultat eller webbplatser skickas till tredje part.
 - Skannern är avsedd för defensiv kontroll och inventering.
 
 ## Bygga från källkod
 
-Kräver [Go](https://go.dev/) 1.27 eller senare.
+Kräver [Go](https://go.dev/) 1.27.3 eller senare samt `zip`, `unzip`, `gzip`, `base64` och `sha256sum` för releasebygget.
 
 ```bash
 ./build.sh
@@ -283,11 +289,16 @@ korsbygge och release-verifiering vid varje push och pull request.
 ├── build.sh                # Bygger Linux + Windows, ZIP och kontrollsummor
 ├── build-windows.bat       # Bygger Windows lokalt
 ├── verify-release.sh       # Verifierar release-paketet
+├── sign-windows.ps1        # Authenticode-signering av Windows-EXE
 ├── docs/API.md             # Dokumentation för det lokala API:et
+├── docs/CODE_SIGNING.md    # Code signing, certifikat och EDR
+├── docs/SUPPLY_CHAIN.md    # Branch protection, SBOM och releaseprovenance
 ├── .github/workflows/      # CI: test, statisk analys och korsbygge
 ├── CHANGELOG.md            # Versionshistorik
 ├── SECURITY.md             # Säkerhetspolicy och rapportering
 ├── CONTRIBUTING.md         # Utveckling och releaseprocess
+├── LICENSE                 # MIT-licens
+├── THIRD_PARTY_NOTICES     # Go-runtimens BSD-licens
 ├── examples/               # Exempellista
 └── release/                # Färdiga, startbara filer
 ```
@@ -299,3 +310,8 @@ korsbygge och release-verifiering vid varje push och pull request.
 - [CERT-EU Security Advisory 2026-018](https://cert.europa.eu/publications/security-advisories/2026-018/)
 - [Sansec: PHP2Shell](https://sansec.io/research/php2shell)
 - [Wiz: PHP2Shell](https://www.wiz.io/blog/php2shell-php-rce)
+
+## Licens
+
+Projektet är licensierat under [MIT](LICENSE). Go-runtime och standardbibliotek
+omfattas av Go-projektets BSD-licens; se [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

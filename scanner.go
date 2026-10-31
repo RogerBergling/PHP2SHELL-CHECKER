@@ -28,17 +28,18 @@ const (
 )
 
 type ScanOptions struct {
-	TimeoutSeconds  int               `json:"timeoutSeconds"`
-	Concurrency     int               `json:"concurrency"`
-	DelayMS         int               `json:"delayMs"`
-	MaxRetries      *int              `json:"maxRetries,omitempty"`
-	FollowRedirects bool              `json:"followRedirects"`
-	InsecureTLS     bool              `json:"insecureTls"`
-	DeepCheck       bool              `json:"deepCheck"`
-	UserAgent       string            `json:"userAgent"`
-	Headers         map[string]string `json:"headers,omitempty"`
-	Cookies         map[string]string `json:"cookies,omitempty"`
-	ProxyURL        string            `json:"proxyUrl,omitempty"`
+	TimeoutSeconds      int               `json:"timeoutSeconds"`
+	Concurrency         int               `json:"concurrency"`
+	DelayMS             int               `json:"delayMs"`
+	MaxRetries          *int              `json:"maxRetries,omitempty"`
+	FollowRedirects     bool              `json:"followRedirects"`
+	InsecureTLS         bool              `json:"insecureTls"`
+	DeepCheck           bool              `json:"deepCheck"`
+	AllowPrivateTargets bool              `json:"allowPrivateTargets"`
+	UserAgent           string            `json:"userAgent"`
+	Headers             map[string]string `json:"headers,omitempty"`
+	Cookies             map[string]string `json:"cookies,omitempty"`
+	ProxyURL            string            `json:"proxyUrl,omitempty"`
 }
 
 func (o *ScanOptions) applyDefaults() {
@@ -201,6 +202,129 @@ func (o *ScanOptions) validate() error {
 	return nil
 }
 
+var (
+	errBlockedTarget    = errors.New("target resolves to a private, local or reserved address")
+	errTargetUnresolved = errors.New("target hostname could not be resolved")
+	blockedTargetNets   = func() []*net.IPNet {
+		var networks []*net.IPNet
+		for _, raw := range []string{
+			"0.0.0.0/8",       // "this network"
+			"100.64.0.0/10",   // carrier-grade NAT
+			"192.0.0.0/24",    // IETF protocol assignments
+			"198.18.0.0/15",   // benchmarking
+			"192.0.2.0/24",    // documentation
+			"198.51.100.0/24", // documentation
+			"203.0.113.0/24",  // documentation
+			"240.0.0.0/4",     // reserved
+			"2001:db8::/32",   // documentation
+		} {
+			_, network, err := net.ParseCIDR(raw)
+			if err == nil {
+				networks = append(networks, network)
+			}
+		}
+		return networks
+	}()
+)
+
+func parseTargetIP(host string) net.IP {
+	if zone := strings.LastIndex(host, "%"); zone >= 0 {
+		host = host[:zone]
+	}
+	return net.ParseIP(strings.Trim(host, "[]"))
+}
+
+func isBlockedTargetIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return true
+	}
+	for _, network := range blockedTargetNets {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateTargetURL(ctx context.Context, u *url.URL) error {
+	host := u.Hostname()
+	if host == "" {
+		return nil
+	}
+	if ip := parseTargetIP(host); ip != nil {
+		if isBlockedTargetIP(ip) {
+			return errBlockedTarget
+		}
+		return nil
+	}
+	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return errTargetUnresolved
+	}
+	for _, address := range addresses {
+		if isBlockedTargetIP(address.IP) {
+			return errBlockedTarget
+		}
+	}
+	return nil
+}
+
+func (s *Scanner) validateTarget(ctx context.Context, u *url.URL) error {
+	if s.opts.AllowPrivateTargets {
+		return nil
+	}
+	host := strings.ToLower(u.Hostname())
+	now := time.Now()
+	if cached, ok := s.targetChecks.Load(host); ok {
+		check := cached.(targetCheck)
+		if now.Before(check.expires) {
+			if check.allowed {
+				return nil
+			}
+			return errBlockedTarget
+		}
+		s.targetChecks.Delete(host)
+	}
+	if err := validateTargetURL(ctx, u); err != nil {
+		if errors.Is(err, errBlockedTarget) {
+			s.targetChecks.Store(host, targetCheck{allowed: false, expires: now.Add(targetCheckTTL)})
+		}
+		if errors.Is(err, errTargetUnresolved) {
+			return nil // do not cache; let the dial report the DNS failure
+		}
+		return err
+	}
+	s.targetChecks.Store(host, targetCheck{allowed: true, expires: now.Add(targetCheckTTL)})
+	return nil
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		effectivePort(a) == effectivePort(b)
+}
+
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
+}
+
 type Result struct {
 	Input         string     `json:"input"`
 	FinalURL      string     `json:"finalUrl,omitempty"`
@@ -286,11 +410,19 @@ func (l *hostLimiter) wait(ctx context.Context, host string) error {
 	}
 }
 
-type Scanner struct {
-	opts    ScanOptions
-	client  *http.Client
-	limiter *hostLimiter
+type targetCheck struct {
+	allowed bool
+	expires time.Time
 }
+
+type Scanner struct {
+	opts         ScanOptions
+	client       *http.Client
+	limiter      *hostLimiter
+	targetChecks sync.Map // hostname -> targetCheck
+}
+
+const targetCheckTTL = 30 * time.Second
 
 func NewScanner(opts ScanOptions) *Scanner {
 	opts.applyDefaults()
@@ -327,6 +459,11 @@ func NewScanner(opts ScanOptions) *Scanner {
 		Transport: transport,
 		Timeout:   timeout,
 	}
+	scanner := &Scanner{
+		opts:    opts,
+		client:  client,
+		limiter: &hostLimiter{last: make(map[string]time.Time), delay: time.Duration(opts.DelayMS) * time.Millisecond},
+	}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if !opts.FollowRedirects {
 			return http.ErrUseLastResponse
@@ -334,14 +471,25 @@ func NewScanner(opts ScanOptions) *Scanner {
 		if len(via) >= maxRedirects {
 			return errors.New("för många omdirigeringar")
 		}
+		if len(via) > 0 && !sameOrigin(via[0].URL, req.URL) {
+			// Go copies most custom headers to redirects. Strip them when
+			// leaving the original origin so API keys and cookies cannot
+			// leak to a third-party host.
+			for name := range opts.Headers {
+				req.Header.Del(name)
+			}
+			req.Header.Del("Authorization")
+			req.Header.Del("Proxy-Authorization")
+			req.Header.Del("Cookie")
+			req.Header.Del("Cookie2")
+			req.Header.Del("Referer")
+		}
+		if err := scanner.validateTarget(req.Context(), req.URL); err != nil {
+			return err
+		}
 		return nil
 	}
-
-	return &Scanner{
-		opts:    opts,
-		client:  client,
-		limiter: &hostLimiter{last: make(map[string]time.Time), delay: time.Duration(opts.DelayMS) * time.Millisecond},
-	}
+	return scanner
 }
 
 func (s *Scanner) Scan(ctx context.Context, raw string) (res Result) {
@@ -517,6 +665,9 @@ func waitForContext(ctx context.Context, delay time.Duration) bool {
 func (s *Scanner) fetchOnce(ctx context.Context, target string) (*pageInfo, error) {
 	u, err := url.Parse(target)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.validateTarget(ctx, u); err != nil {
 		return nil, err
 	}
 	if err := s.limiter.wait(ctx, strings.ToLower(u.Host)); err != nil {
@@ -1156,6 +1307,12 @@ func friendlyError(err error) string {
 	}
 	if errors.Is(err, context.Canceled) {
 		return "avbruten"
+	}
+	if errors.Is(err, errBlockedTarget) {
+		return "målet ligger i ett privat, lokalt eller reserverat nätverk (aktivera Tillåt privata mål)"
+	}
+	if errors.Is(err, errTargetUnresolved) {
+		return "värdnamnet kunde inte slås upp (DNS)"
 	}
 	msg := err.Error()
 	switch {

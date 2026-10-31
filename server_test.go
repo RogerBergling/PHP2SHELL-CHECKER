@@ -133,7 +133,7 @@ func TestScanEndpointStreamsResults(t *testing.T) {
 	defer fixture.Close()
 
 	app := mustNewApp(t)
-	payload := fmt.Sprintf(`{"targets":[%q],"options":{"timeoutSeconds":3,"concurrency":1,"delayMs":0,"followRedirects":true,"deepCheck":false}}`, fixture.URL)
+	payload := fmt.Sprintf(`{"targets":[%q],"options":{"timeoutSeconds":3,"concurrency":1,"delayMs":0,"followRedirects":true,"deepCheck":false,"allowPrivateTargets":true}}`, fixture.URL)
 	request := httptest.NewRequest(http.MethodPost, "/api/scan", strings.NewReader(payload))
 	request.Host = "127.0.0.1"
 	request.Header.Set("Content-Type", "application/json")

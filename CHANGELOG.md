@@ -3,6 +3,25 @@
 All notable changes are documented here. The project follows semantic
 versioning for the application and the local API.
 
+## [1.4.0] - 2026-10-31
+
+### Added
+
+- MIT license and third-party notices for the Go runtime.
+- SSRF protection that blocks loopback, RFC1918, link-local, cloud-metadata,
+  carrier-grade NAT and reserved test/documentation ranges by default.
+- Explicit `allowPrivateTargets` option for authorized internal scanning.
+- Windows code-signing script, `-RequireSignature` verification, and
+  code-signing/supply-chain documentation.
+- Windows CI execution job.
+- Exact Go toolchain pinning and SHA-pinned GitHub Actions.
+
+### Security
+
+- Custom headers, cookies and referrer information are stripped when a
+  redirect leaves the original origin.
+- Private-target checks are applied to initial targets and redirects.
+
 ## [1.3.0] - 2026-10-31
 
 ### Added

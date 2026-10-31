@@ -6,7 +6,7 @@
 # Eller med en annan sokvag:
 #   powershell -ExecutionPolicy Bypass -File .\verify-windows.ps1 -Path C:\Temp\PHP2Shell-Checker-Windows-x64.exe
 
-param([string]$Path)
+param([string]$Path, [switch]$RequireSignature)
 
 $ErrorActionPreference = 'Stop'
 
@@ -78,6 +78,27 @@ if ($actual -ne $expected) {
     Write-Host '  1. Ladda ner PHP2Shell-Checker-Windows-x64.exe.gz.b64 (textfil).'
     Write-Host '  2. Kor: powershell -ExecutionPolicy Bypass -File .\restore-windows.ps1'
     exit 1
+}
+
+$signature = $null
+try {
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+} catch {
+    if ($RequireSignature) {
+        Write-Host ''
+        Write-Host ("FEL: kunde inte kontrollera Authenticode-signaturen: {0}" -f $_.Exception.Message)
+        exit 5
+    }
+}
+
+if ($signature) {
+    Write-Host ("Signatur:   {0}" -f $signature.Status)
+}
+
+if ($RequireSignature -and (-not $signature -or $signature.Status -ne 'Valid')) {
+    Write-Host ''
+    Write-Host 'FEL: filen har ingen giltig Authenticode-signatur.'
+    exit 5
 }
 
 Write-Host ''
