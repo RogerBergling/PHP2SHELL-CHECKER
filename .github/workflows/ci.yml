@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with race detector
+        run: go test -race -count=1 -shuffle=on ./...
+
+      - name: Install static analysis tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          GOBIN="$RUNNER_TEMP/bin" go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+          GOBIN="$RUNNER_TEMP/bin" go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+
+      - name: Staticcheck
+        run: '"$RUNNER_TEMP/bin/staticcheck" ./...'
+
+      - name: Vulnerability check
+        run: '"$RUNNER_TEMP/bin/govulncheck" ./...'
+
+      - name: Cross-build release targets
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -buildvcs=false -ldflags "-s -w" \
+            -o "$RUNNER_TEMP/php2shell-linux" .
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -trimpath -buildvcs=false -ldflags "-s -w" \
+            -o "$RUNNER_TEMP/php2shell-windows.exe" .
+          "$RUNNER_TEMP/php2shell-linux" --version
+
+      - name: Verify checked-in release bundle
+        run: ./verify-release.sh

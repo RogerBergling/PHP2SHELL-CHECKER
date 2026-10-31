@@ -1050,6 +1050,7 @@
   function reportMeta() {
     return {
       report: "PHP2Shell Checker – bevisrapport",
+      schemaVersion: 1,
       generatedAt: new Date().toISOString(),
       tool: "PHP2Shell Checker",
       version: VERSION,
@@ -1290,6 +1291,7 @@
   function exportJSON() {
     if (state.results.length === 0) return toast("Inga resultat att exportera.", true);
     const payload = {
+      schemaVersion: 1,
       generatedAt: new Date().toISOString(),
       scanner: "PHP2Shell Checker",
       version: VERSION,

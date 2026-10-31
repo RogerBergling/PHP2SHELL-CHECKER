@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"syscall"
 	"time"
 )
 
@@ -24,13 +25,18 @@ func main() {
 		return
 	}
 
+	app, err := NewApp()
+	if err != nil {
+		fatalNotify("PHP2Shell Checker", "Kunde inte skapa en säker lokal API-token:\n\n"+err.Error())
+		return
+	}
+
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
 		fatalNotify("PHP2Shell Checker", "Kunde inte starta den lokala servern:\n\n"+err.Error())
 		return
 	}
 
-	app := NewApp()
 	url := "http://" + listener.Addr().String() + "/"
 	fmt.Printf("PHP2Shell Checker %s\n", appVersion)
 	fmt.Printf("Öppna %s om webbläsaren inte startar automatiskt.\n", url)
@@ -43,11 +49,13 @@ func main() {
 	server := &http.Server{
 		Handler:           app.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		select {
 		case <-app.Shutdown():

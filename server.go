@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"net"
@@ -18,7 +19,8 @@ import (
 )
 
 const (
-	appVersion       = "1.2.0"
+	appVersion       = "1.2.1"
+	apiVersion       = 1
 	defaultUserAgent = "PHP2ShellChecker/" + appVersion + " (defensive vulnerability check)"
 )
 
@@ -46,26 +48,30 @@ type scanEvent struct {
 	Message   string  `json:"message,omitempty"`
 }
 
-func NewApp() *App {
+func NewApp() (*App, error) {
+	token, err := randomToken()
+	if err != nil {
+		return nil, fmt.Errorf("skapa slumpmässig API-token: %w", err)
+	}
 	return &App{
-		token:      randomToken(),
+		token:      token,
 		version:    appVersion,
 		shutdownCh: make(chan struct{}),
-	}
+	}, nil
 }
 
 func (a *App) Shutdown() <-chan struct{} {
 	return a.shutdownCh
 }
 
-func randomToken() string {
+// randomToken fails closed. A predictable fallback token would make the
+// otherwise strong loopback/Origin protections much less meaningful.
+func randomToken() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
-		// This should never happen on a supported platform. If it does, the
-		// scanner still runs, but the API token will be less unpredictable.
-		return "php2shell-local-scanner"
+		return "", err
 	}
-	return hex.EncodeToString(buf)
+	return hex.EncodeToString(buf), nil
 }
 
 func (a *App) Handler() http.Handler {
@@ -83,6 +89,7 @@ func (a *App) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
 		h.Set("Cache-Control", "no-store")
 		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		next.ServeHTTP(w, r)
@@ -113,6 +120,7 @@ func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
+		"apiVersion":    apiVersion,
 		"version":       a.version,
 		"fixedVersions": fixedVersions,
 		"cves":          []string{"CVE-2026-109618", "CVE-2026-109619", cveUploadProgress},

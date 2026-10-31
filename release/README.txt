@@ -1,4 +1,4 @@
-PHP2Shell Checker 1.2.0
+PHP2Shell Checker 1.2.1
 =======================
 
 Defensiv kontroll av PHP och PHP2Shell (CVE-2026-109618, CVE-2026-109619)
@@ -22,12 +22,13 @@ tom ZIP beror pa att filen pa datorn ar ofullstandig, blockerad eller
 ligger pa ett skadat filsystem - inte pa programmet.
 
 Kontrollera i denna ordning:
-1. Om du bara har ZIP-filen: ladda ner verify-windows.ps1 och
-   SHA256SUMS.txt fran projektets release-mapp och lagg dem bredvid
-   EXE-filen. Kor sedan i PowerShell:
+1. Kor i PowerShell i denna mapp. verify-windows.ps1 och EXE-filens
+   .sha256 finns i ZIP-filen:
      powershell -ExecutionPolicy Bypass -File .\verify-windows.ps1
-   Skriptet kontrollerar storlek, filhuvud och SHA-256.
-2. EXE-filen ska vara 7 993 856 byte (cirka 7,5 MiB) i version 1.2.0.
+   Skriptet kontrollerar storlek, filhuvud och SHA-256. Om du bara
+   laddade ner EXE-filen: ladda ner verify-windows.ps1 och
+   PHP2Shell-Checker-Windows-x64.exe.sha256 fran release-mappen.
+2. EXE-filen ska vara 7 995 392 byte (cirka 7,5 MiB) i version 1.2.1.
    Ar den 0 byte eller bara nagra kilobyte har nedladdningen misslyckats.
 3. Avblockera filen: hogerklicka -> Egenskaper -> Avblockera, eller:
      Unblock-File .\PHP2Shell-Checker-Windows-x64.exe

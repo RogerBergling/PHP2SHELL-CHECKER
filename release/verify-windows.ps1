@@ -45,11 +45,24 @@ try {
     exit 3
 }
 
-$expected = (Select-String -LiteralPath $sums -Pattern ([regex]::Escape($name) + '$') |
-    Select-Object -First 1).Line -split '\s+' | Select-Object -First 1
+$expected = $null
+if (Test-Path -LiteralPath $sums) {
+    $expected = (Select-String -LiteralPath $sums -Pattern ([regex]::Escape($name) + '$') |
+        Select-Object -First 1).Line -split '\s+' | Select-Object -First 1
+}
 
 if (-not $expected) {
-    Write-Host "Hittar ingen kontrollsumma for $name i SHA256SUMS.txt"
+    # ZIP-filen innehaller en egen .sha256-fil, sa verifieringen fungerar
+    # direkt efter extrahering utan att SHA256SUMS.txt behover laddas ner.
+    $exeSum = Join-Path $dir ($name + '.sha256')
+    if (Test-Path -LiteralPath $exeSum) {
+        $expected = (Get-Content -LiteralPath $exeSum -Raw).Trim() -split '\s+'
+        $expected = $expected | Select-Object -First 1
+    }
+}
+
+if (-not $expected) {
+    Write-Host "Hittar ingen kontrollsumma for $name i SHA256SUMS.txt eller .sha256"
     exit 4
 }
 

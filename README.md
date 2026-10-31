@@ -12,6 +12,8 @@ Skannern finns som fristående filer:
 
 Ingen Python-, Java- eller Go-installation behövs för att köra filerna.
 
+Mer dokumentation: [lokal API](docs/API.md) · [ändringslogg](CHANGELOG.md) · [säkerhetspolicy](SECURITY.md) · [utveckling](CONTRIBUTING.md).
+
 ## Snabbstart
 
 ### Windows
@@ -24,6 +26,8 @@ Ingen Python-, Java- eller Go-installation behövs för att köra filerna.
 
 > Windows SmartScreen kan varna eftersom filen inte är koddignerad. Välj **Mer information → Kör ändå** om du själv har byggt eller hämtat filen från en betrodd källa. Samma gäller om Windows Defender eller ett annat antivirusprogram flaggar filen – lägg då till den som undantag endast om du litar på källan.
 
+> **Om Harmony EDR eller annat skyddsprogram blockerar filen:** EXE-filen är en osignerad Go-binär med låg spridning och kan därför klassas som misstänkt. Det åtgärdas inte med en kodändring. Låt IT-administratören verifiera SHA-256, godkänna filen i EDR:ens allowlist och skicka in en false-positive-rapport till skyddsleverantören. För bred distribution krävs code signing med ett betrott certifikat (EV-certifikat ger snabbare rykte). Signera aldrig med en egen certifikatkedja och försök inte kringgå EDR.
+
 #### Om Windows säger att filen är skadad
 
 Fel som **"Filen eller katalogen är skadad och kan inte läsas"** (0x80070570 / `ERROR_FILE_CORRUPT`), **"This app can't run on your PC"** eller en ZIP som visas som tom beror nästan alltid på att filen på datorn är ofullständig, blockerad eller ligger på ett skadat filsystem – inte på programmet. Filerna i `release/` är verifierade med SHA-256 och ZIP-test.
@@ -34,13 +38,13 @@ Kontrollera i denna ordning:
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\verify-windows.ps1
    ```
-   Skriptet visar storlek, första byte (`4D 5A` = giltig Windows-binär) och jämför SHA-256 med `SHA256SUMS.txt`. Om du bara hämtade ZIP-filen behöver du även ladda ner `verify-windows.ps1` och `SHA256SUMS.txt` från `release/` och lägga dem bredvid den extraherade EXE-filen.
+   Skriptet visar storlek, första byte (`4D 5A` = giltig Windows-binär) och jämför SHA-256 med `SHA256SUMS.txt` eller EXE-filens `.sha256`. `verify-windows.ps1` och `.sha256`-filen finns i ZIP-filen. Om du bara hämtade EXE-filen kan du ladda ner dem från `release/`.
 2. **Jämför kontrollsumman manuellt.**
    ```powershell
    Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
    ```
    Hashvärdet ska stå i `release/SHA256SUMS.txt`. Stämmer det inte är filen ofullständigt nedladdad – ladda ner igen.
-3. **Kontrollera filstorleken.** `.exe`-filen ska vara **7 993 856 byte** (cirka 7,5 MiB) i version 1.2.0. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
+3. **Kontrollera filstorleken.** `.exe`-filen ska vara **7 995 392 byte** (cirka 7,5 MiB) i version 1.2.1. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
 4. **Avblockera filen.** Högerklicka → **Egenskaper** → kryssa i **Avblockera** (Unblock) → **OK**, eller:
    ```powershell
    Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
@@ -64,7 +68,7 @@ Kontrollera i denna ordning:
    cd PHP2SHELL-CHECKER
    .\build-windows.bat
    ```
-10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.2.0` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
+10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.2.1` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
 
 > **Smart App Control / S-läge:** Windows 11 kan blockera osignerade program. Kontrollera **Windows-säkerhet → App- och webbläsarkontroll**. Smart App Control kan stängas av om du litar på filen (det går inte att slå på igen utan ominstallation). Windows i **S-läge** kan bara köra program från Microsoft Store.
 
@@ -90,6 +94,15 @@ Webbläsaren öppnas automatiskt. Om det inte fungerar, öppna adressen som skri
 ```
 
 Stäng av med **Stäng av** i gränssnittet eller `Ctrl+C` i terminalen.
+
+### Kommandoradsflaggor
+
+| Flagga | Beskrivning |
+| --- | --- |
+| `--port N` | Använd en fast lokal port. Standard är en slumpmässig ledig port. |
+| `--no-browser` | Starta bara servern och öppna inte webbläsaren. |
+| `--version` | Skriv ut version och avsluta. |
+| `--help` | Visa tillgängliga flaggor. |
 
 ## Användning
 
@@ -119,7 +132,7 @@ Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `ht
 | Följ omdirigeringar | På | Följer upp till 6 omdirigeringar. |
 | Djup versionanalys | På | Kombinerar PHP-indikatorer från cookies med versioner från svarshuvuden, HTML, phpinfo-liknande sidor och flera vanliga diagnostiksökvägar. Provar även webbplatsens rot om den aktuella katalogen inte ger en fullständig version. Stoppar så snart en fullständig version hittats, men kan innebära fler anrop och längre skanningstid. |
 | Ignorera TLS-fel | Av | Användbart för servrar med trasiga eller självsignerade certifikat. |
-| User-Agent | `PHP2ShellChecker/1.2.0 …` | Kan ändras om en sajt blockerar skannern. |
+| User-Agent | `PHP2ShellChecker/1.2.1 …` | Kan ändras om en sajt blockerar skannern. |
 
 ## Bedömningar
 
@@ -232,6 +245,16 @@ Kör tester:
 go test ./...
 ```
 
+Verifiera att `release/`-paketet är intakt och att version, storlek och
+kontrollsummor stämmer:
+
+```bash
+./verify-release.sh
+```
+
+CI kör formatering, `go vet`, race-tester, `staticcheck`, `govulncheck`,
+korsbygge och release-verifiering vid varje push och pull request.
+
 ## Projektstruktur
 
 ```text
@@ -241,9 +264,16 @@ go test ./...
 ├── scanner.go              # Icke-invasiv PHP-detektering och djup versionanalys
 ├── advisory.go             # CVE-2026-115560 och session.upload_progress
 ├── version.go              # Jämförelse mot rättade PHP-versioner
+├── fuzz_test.go            # Fuzz-tester för parser och analys
 ├── web/index.html          # Grafiskt gränssnitt (HTML/CSS/JS)
-├── build.sh                # Bygger Linux + Windows och ZIP
+├── build.sh                # Bygger Linux + Windows, ZIP och kontrollsummor
 ├── build-windows.bat       # Bygger Windows lokalt
+├── verify-release.sh       # Verifierar release-paketet
+├── docs/API.md             # Dokumentation för det lokala API:et
+├── .github/workflows/      # CI: test, statisk analys och korsbygge
+├── CHANGELOG.md            # Versionshistorik
+├── SECURITY.md             # Säkerhetspolicy och rapportering
+├── CONTRIBUTING.md         # Utveckling och releaseprocess
 ├── examples/               # Exempellista
 └── release/                # Färdiga, startbara filer
 ```

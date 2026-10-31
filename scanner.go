@@ -403,6 +403,9 @@ func deepBaseDir(urlPath string) string {
 	if urlPath == "" || urlPath == "/" {
 		return "/"
 	}
+	if !strings.HasPrefix(urlPath, "/") {
+		urlPath = "/" + urlPath
+	}
 	if strings.HasSuffix(urlPath, "/") {
 		return urlPath
 	}

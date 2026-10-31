@@ -15,9 +15,17 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Skapar EXE-kontrollsumma...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$h=(Get-FileHash 'release\PHP2Shell-Checker-Windows-x64.exe' -Algorithm SHA256).Hash.ToLower(); $h + '  PHP2Shell-Checker-Windows-x64.exe' | Set-Content -Encoding ASCII 'release\PHP2Shell-Checker-Windows-x64.exe.sha256'"
+if errorlevel 1 (
+  echo Kunde inte skapa EXE-kontrollsumma.
+  exit /b 1
+)
+
 echo Paketerar ZIP...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "Compress-Archive -Force -Path 'release\PHP2Shell-Checker-Windows-x64.exe','release\README.txt' -DestinationPath 'release\PHP2Shell-Checker-Windows-x64.zip'"
+  "Compress-Archive -Force -Path 'release\PHP2Shell-Checker-Windows-x64.exe','release\PHP2Shell-Checker-Windows-x64.exe.sha256','release\verify-windows.ps1','release\README.txt' -DestinationPath 'release\PHP2Shell-Checker-Windows-x64.zip'"
 if errorlevel 1 (
   echo Kunde inte skapa ZIP.
   exit /b 1

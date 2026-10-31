@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,8 +12,32 @@ import (
 	"time"
 )
 
+func mustNewApp(t *testing.T) *App {
+	t.Helper()
+	app, err := NewApp()
+	if err != nil {
+		t.Fatalf("NewApp: %v", err)
+	}
+	return app
+}
+
+func TestNewAppGeneratesUniqueTokens(t *testing.T) {
+	first := mustNewApp(t)
+	second := mustNewApp(t)
+
+	if len(first.token) != 64 {
+		t.Fatalf("len(token) = %d, want 64 hex characters", len(first.token))
+	}
+	if _, err := hex.DecodeString(first.token); err != nil {
+		t.Fatalf("token is not valid hex: %v", err)
+	}
+	if first.token == second.token {
+		t.Fatal("two applications received the same API token")
+	}
+}
+
 func TestIndexServesTokenAndVersion(t *testing.T) {
-	app := NewApp()
+	app := mustNewApp(t)
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	request.Host = "127.0.0.1:8080"
 	recorder := httptest.NewRecorder()
@@ -28,6 +53,7 @@ func TestIndexServesTokenAndVersion(t *testing.T) {
 		"X-Content-Type-Options": "nosniff",
 		"X-Frame-Options":        "DENY",
 		"Referrer-Policy":        "no-referrer",
+		"Permissions-Policy":     "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 		"Cache-Control":          "no-store",
 	} {
 		if got := recorder.Header().Get(header); got != want {
@@ -53,7 +79,7 @@ func TestIndexServesTokenAndVersion(t *testing.T) {
 }
 
 func TestIndexRejectsUnsupportedMethod(t *testing.T) {
-	app := NewApp()
+	app := mustNewApp(t)
 	request := httptest.NewRequest(http.MethodPost, "/", nil)
 	request.Host = "127.0.0.1:8080"
 	recorder := httptest.NewRecorder()
@@ -68,7 +94,7 @@ func TestIndexRejectsUnsupportedMethod(t *testing.T) {
 }
 
 func TestAuthorizedRequiresLocalHostAndMatchingOrigin(t *testing.T) {
-	app := NewApp()
+	app := mustNewApp(t)
 	tests := []struct {
 		name   string
 		host   string
@@ -106,7 +132,7 @@ func TestScanEndpointStreamsResults(t *testing.T) {
 	}))
 	defer fixture.Close()
 
-	app := NewApp()
+	app := mustNewApp(t)
 	payload := fmt.Sprintf(`{"targets":[%q],"options":{"timeoutSeconds":3,"concurrency":1,"delayMs":0,"followRedirects":true,"deepCheck":false}}`, fixture.URL)
 	request := httptest.NewRequest(http.MethodPost, "/api/scan", strings.NewReader(payload))
 	request.Host = "127.0.0.1"
@@ -149,7 +175,7 @@ func TestScanEndpointStreamsResults(t *testing.T) {
 }
 
 func TestScanEndpointRequiresToken(t *testing.T) {
-	app := NewApp()
+	app := mustNewApp(t)
 	request := httptest.NewRequest(http.MethodPost, "/api/scan", strings.NewReader(`{"targets":["https://example.com"]}`))
 	request.Host = "127.0.0.1"
 	request.Header.Set("Content-Type", "application/json")
@@ -162,7 +188,7 @@ func TestScanEndpointRequiresToken(t *testing.T) {
 }
 
 func TestScanEndpointRejectsWrongContentType(t *testing.T) {
-	app := NewApp()
+	app := mustNewApp(t)
 	request := httptest.NewRequest(http.MethodPost, "/api/scan", strings.NewReader(`{"targets":["https://example.com"]}`))
 	request.Host = "127.0.0.1"
 	request.Header.Set("Content-Type", "text/plain")
@@ -176,7 +202,7 @@ func TestScanEndpointRejectsWrongContentType(t *testing.T) {
 }
 
 func TestShutdownEndpoint(t *testing.T) {
-	app := NewApp()
+	app := mustNewApp(t)
 	request := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
 	request.Host = "127.0.0.1"
 	request.Header.Set("X-Scanner-Token", app.token)
@@ -194,7 +220,7 @@ func TestShutdownEndpoint(t *testing.T) {
 }
 
 func TestHealthEndpoint(t *testing.T) {
-	app := NewApp()
+	app := mustNewApp(t)
 	request := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	request.Host = "127.0.0.1"
 	recorder := httptest.NewRecorder()
@@ -209,5 +235,8 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 	if body["version"] != appVersion {
 		t.Fatalf("version = %v, want %s", body["version"], appVersion)
+	}
+	if body["apiVersion"] != float64(apiVersion) {
+		t.Fatalf("apiVersion = %v, want %d", body["apiVersion"], apiVersion)
 	}
 }
