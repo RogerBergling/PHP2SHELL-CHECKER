@@ -161,6 +161,7 @@
   .tip { color: var(--accent-2); cursor: help; font-size: 12px; }
   .advanced { margin-top: 10px; }
   .advanced label { margin-top: 8px; }
+  .advanced textarea { min-height: 58px; font-family: var(--mono); font-size: 11.5px; }
 
   .legal { color: var(--muted-2); font-size: 10.8px; line-height: 1.45; margin: 12px 0 0; border-left: 2px solid rgba(255, 176, 32, .5); padding-left: 9px; }
 
@@ -340,6 +341,9 @@
         <label>Fördröjning/värd (ms)
           <input type="number" id="delay" min="0" max="10000" value="250">
         </label>
+        <label>Försök igen
+          <input type="number" id="maxRetries" min="0" max="5" value="2">
+        </label>
       </div>
       <label class="check"><input type="checkbox" id="followRedirects" checked> Följ omdirigeringar</label>
       <label class="check"><input type="checkbox" id="deepCheck" checked> Djup versionanalys
@@ -351,6 +355,16 @@
         <label>User-Agent
           <input type="text" id="userAgent" value="PHP2ShellChecker/{{VERSION}} (defensive vulnerability check)">
         </label>
+        <label>Proxy
+          <input type="text" id="proxyUrl" placeholder="http://proxy:8080, direct eller tom">
+        </label>
+        <label>Egna headers (en per rad: Namn: värde)
+          <textarea id="extraHeaders" rows="3" spellcheck="false" placeholder="Authorization: Bearer …&#10;X-Custom-Header: värde"></textarea>
+        </label>
+        <label>Cookies (en per rad: namn=värde)
+          <textarea id="extraCookies" rows="2" spellcheck="false" placeholder="session=abc123&#10;annat=värde"></textarea>
+        </label>
+        <p class="legal">Headers, cookies och proxy med autentisering sparas inte i webbläsaren.</p>
       </details>
     </details>
 
@@ -512,7 +526,10 @@
     toastTimer: null,
   };
 
-  const OPTION_IDS = ["timeout", "concurrency", "delay", "followRedirects", "deepCheck", "insecureTls", "userAgent"];
+  const OPTION_IDS = [
+    "timeout", "concurrency", "delay", "maxRetries", "followRedirects", "deepCheck",
+    "insecureTls", "userAgent", "proxyUrl", "extraHeaders", "extraCookies"
+  ];
 
   function escapeHTML(value) {
     return String(value ?? "").replace(/[&<>"']/g, (c) => ({
@@ -560,6 +577,34 @@
     return out;
   }
 
+  function parseHeaderLines(text) {
+    const out = {};
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+      const separator = line.indexOf(":");
+      if (separator <= 0) continue;
+      const name = line.slice(0, separator).trim();
+      const value = line.slice(separator + 1).trim();
+      if (name && value) out[name] = value;
+    }
+    return out;
+  }
+
+  function parseCookieLines(text) {
+    const out = {};
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+      const separator = line.indexOf("=");
+      if (separator <= 0) continue;
+      const name = line.slice(0, separator).trim();
+      const value = line.slice(separator + 1).trim();
+      if (name) out[name] = value;
+    }
+    return out;
+  }
+
   function updateTargetCount() {
     const count = parseTargets(targetsEl.value).length;
     $("targetCount").textContent = `${count} unik${count === 1 ? "" : "a"}`;
@@ -570,17 +615,33 @@
       timeoutSeconds: clampInt($("timeout").value, 2, 120, 10),
       concurrency: clampInt($("concurrency").value, 1, 32, 5),
       delayMs: clampInt($("delay").value, 0, 10000, 250),
+      maxRetries: clampInt($("maxRetries").value, 0, 5, 2),
       followRedirects: $("followRedirects").checked,
       deepCheck: $("deepCheck").checked,
       insecureTls: $("insecureTls").checked,
       userAgent: $("userAgent").value.trim() || `PHP2ShellChecker/${VERSION} (defensive vulnerability check)`,
+      proxyUrl: $("proxyUrl").value.trim(),
+      headers: parseHeaderLines($("extraHeaders").value),
+      cookies: parseCookieLines($("extraCookies").value),
     };
   }
 
   function saveOptions() {
     try {
       const opts = readOptions();
-      localStorage.setItem("php2shell-options", JSON.stringify(opts));
+      // Never persist credentials, cookies or proxy URLs in localStorage.
+      // They may contain bearer tokens or session secrets.
+      const persistent = {
+        timeoutSeconds: opts.timeoutSeconds,
+        concurrency: opts.concurrency,
+        delayMs: opts.delayMs,
+        maxRetries: opts.maxRetries,
+        followRedirects: opts.followRedirects,
+        deepCheck: opts.deepCheck,
+        insecureTls: opts.insecureTls,
+        userAgent: opts.userAgent,
+      };
+      localStorage.setItem("php2shell-options", JSON.stringify(persistent));
     } catch (_) {}
   }
 
@@ -591,10 +652,13 @@
       if (saved.timeoutSeconds != null) $("timeout").value = saved.timeoutSeconds;
       if (saved.concurrency != null) $("concurrency").value = saved.concurrency;
       if (saved.delayMs != null) $("delay").value = saved.delayMs;
+      if (saved.maxRetries != null) $("maxRetries").value = saved.maxRetries;
       if (typeof saved.followRedirects === "boolean") $("followRedirects").checked = saved.followRedirects;
       if (typeof saved.deepCheck === "boolean") $("deepCheck").checked = saved.deepCheck;
       if (typeof saved.insecureTls === "boolean") $("insecureTls").checked = saved.insecureTls;
       if (saved.userAgent) $("userAgent").value = saved.userAgent;
+      // Rewrite old entries so credentials saved by older versions are removed.
+      saveOptions();
     } catch (_) {}
   }
 

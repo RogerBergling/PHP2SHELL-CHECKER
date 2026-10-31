@@ -3,7 +3,7 @@
 ## Requirements
 
 - Go 1.27 or newer
-- `zip`, `gzip`, `base64` and `sha256sum` for release builds
+- `zip`, `unzip`, `gzip`, `base64` and `sha256sum` for release builds
 - PowerShell on Windows for packaged verification scripts
 
 The application has no third-party Go modules.
@@ -30,6 +30,13 @@ Fuzz targets can be run with, for example:
 
 ```bash
 go test -run '^$' -fuzz FuzzAnalyzePage -fuzztime 30s
+```
+
+The 10,000-target worst-case benchmark uses an in-memory transport, so it
+measures scanner overhead rather than network latency:
+
+```bash
+go test -run '^$' -bench BenchmarkWorstCase10000TargetsDeepCheck -benchtime=1x
 ```
 
 ## Release process

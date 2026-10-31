@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	appVersion       = "1.2.1"
+	appVersion       = "1.3.0"
 	apiVersion       = 1
 	defaultUserAgent = "PHP2ShellChecker/" + appVersion + " (defensive vulnerability check)"
 )
@@ -171,6 +171,10 @@ func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
 
 	opts := req.Options
 	opts.applyDefaults()
+	if err := opts.validate(); err != nil {
+		http.Error(w, "invalid options: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	scanner := NewScanner(opts)
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()

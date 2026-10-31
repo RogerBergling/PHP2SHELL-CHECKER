@@ -8,8 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
+
+func intPtr(value int) *int {
+	return &value
+}
 
 func TestAssessPHPVersion(t *testing.T) {
 	tests := []struct {
@@ -32,6 +38,10 @@ func TestAssessPHPVersion(t *testing.T) {
 		{"8.4.26", "vulnerable", "8.4.27"},
 		{"8.4.27", "safe", "8.4.27"},
 		{"8.4.27-1", "safe", "8.4.27"},
+		{"8.4.27-1ubuntu2.14", "safe", "8.4.27"},
+		{"8.4.27RC1", "php_unknown", ""},
+		{"8.4.27-dev", "php_unknown", ""},
+		{"8.4.27-beta1", "php_unknown", ""},
 		{"8.5.11", "vulnerable", "8.5.12"},
 		{"8.5.12", "safe", "8.5.12"},
 		{"8.5.13", "safe", "8.5.12"},
@@ -52,10 +62,19 @@ func TestAssessPHPVersion(t *testing.T) {
 }
 
 func TestParsePHPVersionRejectsInvalidNumbers(t *testing.T) {
-	for _, raw := range []string{"", "PHP 8.4", "999999999999999999999999.1.1"} {
+	for _, raw := range []string{"", "PHP 8.4", "999999999999999999999999.1.1", "8.4.27RC1", "8.4.27-dev", "8.4.27-beta1"} {
 		if _, ok := parsePHPVersion(raw); ok {
 			t.Fatalf("parsePHPVersion(%q) unexpectedly succeeded", raw)
 		}
+	}
+}
+
+func TestCleanVersionPreservesPreReleaseSuffix(t *testing.T) {
+	if got := cleanVersion("8.4.27RC1"); got != "8.4.27RC1" {
+		t.Fatalf("cleanVersion(8.4.27RC1) = %q, want the pre-release marker preserved", got)
+	}
+	if got := cleanVersion("8.4.27-1ubuntu2.14"); got != "8.4.27" {
+		t.Fatalf("cleanVersion(8.4.27-1ubuntu2.14) = %q, want 8.4.27", got)
 	}
 }
 
@@ -78,6 +97,245 @@ func TestApplyDefaultsSanitizesUserAgent(t *testing.T) {
 	long.applyDefaults()
 	if len(long.UserAgent) != 512 {
 		t.Fatalf("len(UserAgent) = %d, want 512", len(long.UserAgent))
+	}
+}
+
+func TestApplyDefaultsRetriesAndProxy(t *testing.T) {
+	opts := ScanOptions{}
+	opts.applyDefaults()
+	if opts.MaxRetries == nil || *opts.MaxRetries != 2 {
+		t.Fatalf("MaxRetries = %v, want default 2", opts.MaxRetries)
+	}
+
+	zero := 0
+	opts = ScanOptions{MaxRetries: &zero}
+	opts.applyDefaults()
+	if *opts.MaxRetries != 0 {
+		t.Fatalf("MaxRetries = %d, want 0", *opts.MaxRetries)
+	}
+
+	negative := -1
+	opts = ScanOptions{MaxRetries: &negative}
+	opts.applyDefaults()
+	if *opts.MaxRetries != 0 {
+		t.Fatalf("MaxRetries = %d, want clamped 0", *opts.MaxRetries)
+	}
+
+	high := 99
+	opts = ScanOptions{MaxRetries: &high}
+	opts.applyDefaults()
+	if *opts.MaxRetries != 5 {
+		t.Fatalf("MaxRetries = %d, want clamped 5", *opts.MaxRetries)
+	}
+}
+
+func TestSanitizeRequestHeaders(t *testing.T) {
+	opts := ScanOptions{
+		Headers: map[string]string{
+			"Host":           "evil.example",
+			"Content-Length": "999",
+			"X-Test":         " value ",
+			"Bad\nName":      "value",
+			"Empty":          "",
+			"User-Agent":     "Custom/1.0",
+		},
+	}
+	opts.applyDefaults()
+
+	if _, ok := opts.Headers["Host"]; ok {
+		t.Fatal("Host header was not filtered out")
+	}
+	if _, ok := opts.Headers["Content-Length"]; ok {
+		t.Fatal("Content-Length header was not filtered out")
+	}
+	if got := opts.Headers["X-Test"]; got != "value" {
+		t.Fatalf("X-Test = %q, want value", got)
+	}
+	if got := opts.Headers["User-Agent"]; got != "Custom/1.0" {
+		t.Fatalf("User-Agent = %q, want Custom/1.0", got)
+	}
+}
+
+func TestSanitizeRequestCookies(t *testing.T) {
+	opts := ScanOptions{
+		Cookies: map[string]string{
+			"session":  "abc123",
+			"bad;name": "value",
+			"broken":   "line\nbreak",
+		},
+	}
+	opts.applyDefaults()
+
+	if got := opts.Cookies["session"]; got != "abc123" {
+		t.Fatalf("session cookie = %q, want abc123", got)
+	}
+	if _, ok := opts.Cookies["bad;name"]; ok {
+		t.Fatal("invalid cookie name was not filtered out")
+	}
+	if _, ok := opts.Cookies["broken"]; ok {
+		t.Fatal("cookie with CR/LF was not filtered out")
+	}
+}
+
+func TestValidateProxyURL(t *testing.T) {
+	valid := []string{"", "env", "direct", "none", "http://proxy.example:8080", "https://proxy.example:8443"}
+	for _, value := range valid {
+		opts := ScanOptions{ProxyURL: value}
+		opts.applyDefaults()
+		if err := opts.validate(); err != nil {
+			t.Fatalf("validate(%q) = %v, want nil", value, err)
+		}
+	}
+	for _, value := range []string{"ftp://proxy.example", "http://", "not a url"} {
+		opts := ScanOptions{ProxyURL: value}
+		opts.applyDefaults()
+		if err := opts.validate(); err == nil {
+			t.Fatalf("validate(%q) succeeded, want an error", value)
+		}
+	}
+}
+
+func TestConfiguredProxy(t *testing.T) {
+	scanner := NewScanner(ScanOptions{ProxyURL: "http://proxy.example:8080", MaxRetries: intPtr(0)})
+	transport, ok := scanner.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("scanner transport is not *http.Transport")
+	}
+	request, err := http.NewRequest(http.MethodGet, "http://target.example/", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	proxy, err := transport.Proxy(request)
+	if err != nil || proxy == nil || proxy.String() != "http://proxy.example:8080" {
+		t.Fatalf("proxy = %v, err = %v; want http://proxy.example:8080", proxy, err)
+	}
+
+	direct := NewScanner(ScanOptions{ProxyURL: "direct", MaxRetries: intPtr(0)})
+	directTransport := direct.client.Transport.(*http.Transport)
+	if directTransport.Proxy != nil {
+		t.Fatal("direct proxy function is set, want nil")
+	}
+}
+
+func TestRetryDelay(t *testing.T) {
+	if got := retryDelay("0", 0); got != 0 {
+		t.Fatalf("retryDelay(0) = %v, want 0", got)
+	}
+	if got := retryDelay("2", 0); got != 2*time.Second {
+		t.Fatalf("retryDelay(2) = %v, want 2s", got)
+	}
+	if got := retryDelay("999", 0); got != retryAfterMax {
+		t.Fatalf("retryDelay(999) = %v, want cap %v", got, retryAfterMax)
+	}
+	if got := retryDelay("invalid", 1); got != time.Second {
+		t.Fatalf("retryDelay(invalid, 1) = %v, want 1s", got)
+	}
+	future := time.Now().Add(2 * time.Second).UTC().Format(http.TimeFormat)
+	if got := retryDelay(future, 0); got <= 0 || got > 3*time.Second {
+		t.Fatalf("retryDelay(HTTP date) = %v, want a short positive delay", got)
+	}
+}
+
+func TestScanSendsCustomHeadersAndCookies(t *testing.T) {
+	headersCh := make(chan http.Header, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headersCh <- r.Header.Clone()
+		w.Header().Set("X-Powered-By", "PHP/8.4.27")
+		_, _ = io.WriteString(w, "<html>ok</html>")
+	}))
+	defer server.Close()
+
+	scanner := NewScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		DelayMS:         0,
+		MaxRetries:      intPtr(0),
+		Headers: map[string]string{
+			"X-Custom-Header": "custom-value",
+			"User-Agent":      "CustomScanner/1.0",
+			"Host":            "ignored.example",
+		},
+		Cookies: map[string]string{"session": "abc123"},
+	})
+	result := scanner.Scan(context.Background(), server.URL)
+	if result.Verdict != "safe" {
+		t.Fatalf("Verdict = %q, want safe", result.Verdict)
+	}
+
+	headers := <-headersCh
+	if got := headers.Get("X-Custom-Header"); got != "custom-value" {
+		t.Fatalf("X-Custom-Header = %q, want custom-value", got)
+	}
+	if got := headers.Get("User-Agent"); got != "CustomScanner/1.0" {
+		t.Fatalf("User-Agent = %q, want CustomScanner/1.0", got)
+	}
+	if got := headers.Get("Host"); got != "" {
+		t.Fatalf("Host header = %q, want it filtered out", got)
+	}
+	if got := headers.Get("Cookie"); !strings.Contains(got, "session=abc123") {
+		t.Fatalf("Cookie = %q, want session=abc123", got)
+	}
+}
+
+func TestScanRetries429And503(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var attempts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if attempts.Add(1) == 1 {
+					w.Header().Set("Retry-After", "0")
+					w.WriteHeader(status)
+					return
+				}
+				w.Header().Set("X-Powered-By", "PHP/8.4.27")
+				_, _ = io.WriteString(w, "<html>ok</html>")
+			}))
+			defer server.Close()
+
+			result := NewScanner(ScanOptions{
+				TimeoutSeconds:  3,
+				DeepCheck:       false,
+				FollowRedirects: true,
+				DelayMS:         0,
+				MaxRetries:      intPtr(2),
+			}).Scan(context.Background(), server.URL)
+
+			if result.StatusCode != http.StatusOK {
+				t.Fatalf("StatusCode = %d, want 200", result.StatusCode)
+			}
+			if result.Verdict != "safe" {
+				t.Fatalf("Verdict = %q, want safe", result.Verdict)
+			}
+			if got := attempts.Load(); got != 2 {
+				t.Fatalf("attempts = %d, want 2", got)
+			}
+		})
+	}
+}
+
+func TestScanRetryLimit(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	result := NewScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		DelayMS:         0,
+		MaxRetries:      intPtr(1),
+	}).Scan(context.Background(), server.URL)
+
+	if result.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("StatusCode = %d, want 429", result.StatusCode)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
 	}
 }
 
@@ -346,6 +604,22 @@ func TestScanDeepCheckFallsBackToDocumentRoot(t *testing.T) {
 	}
 }
 
+func TestDeepCheckWorstCaseProbeCount(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, "<html>static</html>")
+	}))
+	defer server.Close()
+
+	result := NewScanner(ScanOptions{TimeoutSeconds: 3, DeepCheck: true, FollowRedirects: true, DelayMS: 0, MaxRetries: intPtr(0)}).Scan(context.Background(), server.URL+"/app/")
+	if result.PHPVersion != "" {
+		t.Fatalf("PHPVersion = %q, want empty", result.PHPVersion)
+	}
+	if len(result.DeepChecks) != 14 {
+		t.Fatalf("DeepChecks = %d, want 14 probes (7 directory + 7 document root)", len(result.DeepChecks))
+	}
+}
+
 func TestScanConnectionError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	address := server.URL
@@ -378,6 +652,20 @@ func TestAnalyzePageBodyVersion(t *testing.T) {
 	}
 	if det.version != "8.3.36" {
 		t.Fatalf("version = %q, want 8.3.36", det.version)
+	}
+}
+
+func TestAnalyzePagePreservesPreReleaseVersion(t *testing.T) {
+	page := &pageInfo{
+		headers: http.Header{"X-Powered-By": {"PHP/8.4.27RC1"}},
+		body:    []byte(`<html><body>ok</body></html>`),
+	}
+	det := analyzePage(page)
+	if det.version != "8.4.27RC1" {
+		t.Fatalf("version = %q, want 8.4.27RC1", det.version)
+	}
+	if assessment := assessPHPVersion(det.version); assessment.Verdict != "php_unknown" {
+		t.Fatalf("verdict = %q, want php_unknown for a release candidate", assessment.Verdict)
 	}
 }
 
@@ -485,6 +773,22 @@ func TestXPHPVersionHeaderWithoutPrefix(t *testing.T) {
 	}
 	if det.versionSrc != "X-PHP-Version" {
 		t.Fatalf("versionSource = %q, want X-PHP-Version", det.versionSrc)
+	}
+}
+
+func TestXPHPVersionHeaderPreRelease(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("X-PHP-Version", "8.4.27RC1")
+	page := &pageInfo{
+		headers: headers,
+		body:    []byte(`<html><body>ok</body></html>`),
+	}
+	det := analyzePage(page)
+	if det.version != "8.4.27RC1" {
+		t.Fatalf("version = %q, want 8.4.27RC1", det.version)
+	}
+	if assessment := assessPHPVersion(det.version); assessment.Verdict != "php_unknown" {
+		t.Fatalf("verdict = %q, want php_unknown", assessment.Verdict)
 	}
 }
 

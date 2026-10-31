@@ -16,7 +16,19 @@ var fixedVersions = map[string]string{
 	"8.5": "8.5.12",
 }
 
-var phpVersionPrefixRe = regexp.MustCompile(`^(\d+)\.(\d+)(?:\.(\d+))?`)
+var (
+	phpVersionPrefixRe    = regexp.MustCompile(`^(\d+)\.(\d+)(?:\.(\d+))?`)
+	phpPreReleaseSuffixRe = regexp.MustCompile(`(?i)^(?:\s*[-._+~]\s*)?(?:alpha|beta|rc|dev|snapshot|preview)\d*`)
+)
+
+func hasPreReleaseSuffix(version string) bool {
+	version = strings.TrimSpace(version)
+	m := phpVersionPrefixRe.FindStringSubmatch(version)
+	if m == nil {
+		return false
+	}
+	return phpPreReleaseSuffixRe.MatchString(version[len(m[0]):])
+}
 
 type phpVersion struct {
 	major, minor, patch int
@@ -27,6 +39,11 @@ func parsePHPVersion(s string) (phpVersion, bool) {
 	s = strings.TrimSpace(s)
 	m := phpVersionPrefixRe.FindStringSubmatch(s)
 	if m == nil {
+		return phpVersion{}, false
+	}
+	if hasPreReleaseSuffix(s) {
+		// A release candidate or development build is not the final fixed
+		// release. Treat it as unknown rather than falsely safe.
 		return phpVersion{}, false
 	}
 	major, err := strconv.Atoi(m[1])
@@ -79,10 +96,14 @@ type phpAssessment struct {
 func assessPHPVersion(version string) phpAssessment {
 	v, ok := parsePHPVersion(version)
 	if !ok {
+		detail := "PHP-versionen kunde inte tolkas. Kontrollera serverns PHP-version manuellt."
+		if hasPreReleaseSuffix(version) {
+			detail = "PHP-versionen är en förhandsversion eller utvecklingsversion (" + version + "). Den kan inte antas innehålla den slutliga säkerhetsrättelsen. Kontrollera serverns PHP-version manuellt."
+		}
 		return phpAssessment{
 			Verdict: "php_unknown",
 			Label:   "PHP – okänd version",
-			Detail:  "PHP-versionen kunde inte tolkas. Kontrollera serverns PHP-version manuellt.",
+			Detail:  detail,
 		}
 	}
 

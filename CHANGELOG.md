@@ -3,6 +3,23 @@
 All notable changes are documented here. The project follows semantic
 versioning for the application and the local API.
 
+## [1.3.0] - 2026-10-31
+
+### Added
+
+- Automatic retries for HTTP `429` and `503` with `Retry-After` support and
+  exponential backoff.
+- Custom request headers, cookies and per-scan proxy configuration.
+  Reserved hop-by-hop headers and invalid cookie/header values are filtered.
+  Credentials, cookies and proxy URLs are not persisted to `localStorage`.
+- 10,000-target worst-case benchmark with deep analysis enabled.
+
+### Fixed
+
+- Release candidates and development builds (`RC`, `alpha`, `beta`, `dev`,
+  `snapshot`, `preview`) are now reported as unknown instead of safe.
+  Distro suffixes such as `-1ubuntu2.14` continue to compare normally.
+
 ## [1.2.1] - 2026-10-31
 
 ### Added

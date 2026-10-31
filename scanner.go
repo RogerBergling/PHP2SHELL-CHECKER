@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,13 +28,17 @@ const (
 )
 
 type ScanOptions struct {
-	TimeoutSeconds  int    `json:"timeoutSeconds"`
-	Concurrency     int    `json:"concurrency"`
-	DelayMS         int    `json:"delayMs"`
-	FollowRedirects bool   `json:"followRedirects"`
-	InsecureTLS     bool   `json:"insecureTls"`
-	DeepCheck       bool   `json:"deepCheck"`
-	UserAgent       string `json:"userAgent"`
+	TimeoutSeconds  int               `json:"timeoutSeconds"`
+	Concurrency     int               `json:"concurrency"`
+	DelayMS         int               `json:"delayMs"`
+	MaxRetries      *int              `json:"maxRetries,omitempty"`
+	FollowRedirects bool              `json:"followRedirects"`
+	InsecureTLS     bool              `json:"insecureTls"`
+	DeepCheck       bool              `json:"deepCheck"`
+	UserAgent       string            `json:"userAgent"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	Cookies         map[string]string `json:"cookies,omitempty"`
+	ProxyURL        string            `json:"proxyUrl,omitempty"`
 }
 
 func (o *ScanOptions) applyDefaults() {
@@ -58,6 +63,17 @@ func (o *ScanOptions) applyDefaults() {
 	if o.DelayMS > 10000 {
 		o.DelayMS = 10000
 	}
+	if o.MaxRetries == nil {
+		retries := 2
+		o.MaxRetries = &retries
+	} else if *o.MaxRetries < 0 {
+		*o.MaxRetries = 0
+	} else if *o.MaxRetries > 5 {
+		*o.MaxRetries = 5
+	}
+	o.Headers = sanitizeRequestHeaders(o.Headers)
+	o.Cookies = sanitizeRequestCookies(o.Cookies)
+	o.ProxyURL = strings.TrimSpace(o.ProxyURL)
 	o.UserAgent = strings.TrimSpace(o.UserAgent)
 	if o.UserAgent == "" {
 		o.UserAgent = defaultUserAgent
@@ -87,6 +103,102 @@ type DeepCheck struct {
 	PHPVersion    string `json:"phpVersion,omitempty"`
 	VersionSource string `json:"versionSource,omitempty"`
 	Error         string `json:"error,omitempty"`
+}
+
+var reservedRequestHeaders = map[string]bool{
+	"host":              true,
+	"content-length":    true,
+	"transfer-encoding": true,
+	"connection":        true,
+	"proxy-connection":  true,
+	"upgrade":           true,
+	"trailer":           true,
+	"te":                true,
+	"keep-alive":        true,
+}
+
+func validRequestHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, c := range name {
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' {
+			continue
+		}
+		switch c {
+		case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func sanitizeRequestHeaders(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(headers))
+	for name, value := range headers {
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if len(name) == 0 || len(name) > 256 || len(value) == 0 || len(value) > 2048 {
+			continue
+		}
+		if !validRequestHeaderName(name) || strings.ContainsAny(value, "\r\n") {
+			continue
+		}
+		name = http.CanonicalHeaderKey(name)
+		if reservedRequestHeaders[strings.ToLower(name)] {
+			continue
+		}
+		out[name] = value
+		if len(out) >= 50 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sanitizeRequestCookies(cookies map[string]string) map[string]string {
+	if len(cookies) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(cookies))
+	for name, value := range cookies {
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if len(name) == 0 || len(name) > 256 || len(value) > 4096 {
+			continue
+		}
+		cookie := &http.Cookie{Name: name, Value: value}
+		if cookie.Valid() != nil {
+			continue
+		}
+		out[name] = value
+		if len(out) >= 50 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (o *ScanOptions) validate() error {
+	switch strings.ToLower(strings.TrimSpace(o.ProxyURL)) {
+	case "", "env", "direct", "none":
+		return nil
+	}
+	u, err := url.Parse(o.ProxyURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return errors.New("proxyUrl måste vara en http://- eller https://-adress, direct, none eller tom")
+	}
+	return nil
 }
 
 type Result struct {
@@ -184,8 +296,20 @@ func NewScanner(opts ScanOptions) *Scanner {
 	opts.applyDefaults()
 	timeout := time.Duration(opts.TimeoutSeconds) * time.Second
 
+	proxyFunc := http.ProxyFromEnvironment
+	switch strings.ToLower(opts.ProxyURL) {
+	case "direct", "none":
+		proxyFunc = nil
+	case "", "env":
+		// Keep ProxyFromEnvironment.
+	default:
+		if proxyURL, err := url.Parse(opts.ProxyURL); err == nil {
+			proxyFunc = http.ProxyURL(proxyURL)
+		}
+	}
+
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy: proxyFunc,
 		DialContext: (&net.Dialer{
 			Timeout:   timeout,
 			KeepAlive: 30 * time.Second,
@@ -312,7 +436,85 @@ func (s *Scanner) Scan(ctx context.Context, raw string) (res Result) {
 	return res
 }
 
+const (
+	retryBaseDelay = 500 * time.Millisecond
+	retryMaxDelay  = 10 * time.Second
+	retryAfterMax  = 30 * time.Second
+)
+
 func (s *Scanner) fetch(ctx context.Context, target string) (*pageInfo, error) {
+	retries := 0
+	if s.opts.MaxRetries != nil {
+		retries = *s.opts.MaxRetries
+	}
+
+	for attempt := 0; ; attempt++ {
+		page, err := s.fetchOnce(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+		if page.status != http.StatusTooManyRequests && page.status != http.StatusServiceUnavailable {
+			return page, nil
+		}
+		if attempt >= retries {
+			return page, nil
+		}
+		if !waitForContext(ctx, retryDelay(page.headers.Get("Retry-After"), attempt)) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			return nil, context.Canceled
+		}
+	}
+}
+
+func retryDelay(retryAfter string, attempt int) time.Duration {
+	fallback := retryBaseDelay << attempt
+	if fallback > retryMaxDelay {
+		fallback = retryMaxDelay
+	}
+	retryAfter = strings.TrimSpace(retryAfter)
+	if retryAfter == "" {
+		return fallback
+	}
+	if seconds, err := strconv.Atoi(retryAfter); err == nil {
+		delay := time.Duration(seconds) * time.Second
+		if delay < 0 {
+			return 0
+		}
+		if delay > retryAfterMax {
+			return retryAfterMax
+		}
+		return delay
+	}
+	if when, err := http.ParseTime(retryAfter); err == nil {
+		delay := time.Until(when)
+		if delay < 0 {
+			return 0
+		}
+		if delay > retryAfterMax {
+			return retryAfterMax
+		}
+		return delay
+	}
+	return fallback
+}
+
+func waitForContext(ctx context.Context, delay time.Duration) bool {
+	if delay <= 0 {
+		return ctx.Err() == nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (s *Scanner) fetchOnce(ctx context.Context, target string) (*pageInfo, error) {
 	u, err := url.Parse(target)
 	if err != nil {
 		return nil, err
@@ -331,6 +533,12 @@ func (s *Scanner) fetch(ctx context.Context, target string) (*pageInfo, error) {
 	req.Header.Set("User-Agent", s.opts.UserAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "sv-SE,sv;q=0.9,en;q=0.7")
+	for name, value := range s.opts.Headers {
+		req.Header.Set(name, value)
+	}
+	for name, value := range s.opts.Cookies {
+		req.AddCookie(&http.Cookie{Name: name, Value: value})
+	}
 
 	// Record the address that actually answered. Behind a CDN or load
 	// balancer this documents which endpoint the scanner talked to.
@@ -512,7 +720,7 @@ func (s *Scanner) runDeepProbes(ctx context.Context, origin string, paths []stri
 
 var (
 	phpHeaderVersionRe = regexp.MustCompile(`(?i)\bPHP(?:-CGI|-FPM)?\s*/?\s*v?(\d+\.\d+(?:\.\d+)?)`)
-	phpVersionOnlyRe   = regexp.MustCompile(`(?i)^\s*v?(\d+\.\d+(?:\.\d+)?)(?:[-+][\w.\-]+)?\s*$`)
+	phpVersionOnlyRe   = regexp.MustCompile(`(?i)^\s*v?(\d+\.\d+(?:\.\d+)?)(?:[-+._~]?[a-z0-9][a-z0-9._~+\-]*)?\s*$`)
 	phpInfoVersionRe   = regexp.MustCompile(`(?i)\bPHP\s+(?:Runtime\s+)?Version\s*[:/]?\s*v?(\d+\.\d+(?:\.\d+)?)`)
 	phpPoweredVersion  = regexp.MustCompile(`(?i)\bPowered by\s+PHP\s*[/ ]?\s*v?(\d+\.\d+(?:\.\d+)?)`)
 	phpSlashVersionRe  = regexp.MustCompile(`(?i)\bPHP(?:-CGI|-FPM)?\s*/\s*v?(\d+\.\d+(?:\.\d+)?)`)
@@ -559,9 +767,21 @@ func addVersionCandidate(d *detection, raw, source string, confidence int) {
 	})
 }
 
+func versionMatchValue(input string, idx []int) string {
+	if len(idx) < 4 || idx[2] < 0 || idx[3] < 0 {
+		return ""
+	}
+	version := input[idx[2]:idx[3]]
+	suffix := strings.TrimLeft(input[idx[3]:], " \"'")
+	if loc := phpPreReleaseSuffixRe.FindStringIndex(suffix); loc != nil {
+		version += strings.TrimSpace(suffix[loc[0]:loc[1]])
+	}
+	return version
+}
+
 func addFirstVersionMatch(d *detection, re *regexp.Regexp, input, source string, confidence int) {
-	if m := re.FindStringSubmatch(input); m != nil {
-		addVersionCandidate(d, m[1], source, confidence)
+	if idx := re.FindStringSubmatchIndex(input); idx != nil {
+		addVersionCandidate(d, versionMatchValue(input, idx), source, confidence)
 	}
 }
 
@@ -688,14 +908,14 @@ func analyzePage(p *pageInfo) detection {
 			continue
 		}
 		matched := false
-		if m := phpHeaderVersionRe.FindStringSubmatch(value); m != nil {
-			addVersionCandidate(&d, m[1], candidate.source, candidate.confidence)
+		if idx := phpHeaderVersionRe.FindStringSubmatchIndex(value); idx != nil {
+			addVersionCandidate(&d, versionMatchValue(value, idx), candidate.source, candidate.confidence)
 			matched = true
 		} else if candidate.header == "X-PHP-Version" || candidate.header == "X-PHP-Engine" {
 			// These headers sometimes contain only the bare version, for
 			// example "8.3.36" or "8.3.36-1ubuntu2".
-			if m := phpVersionOnlyRe.FindStringSubmatch(value); m != nil {
-				addVersionCandidate(&d, m[1], candidate.source, candidate.confidence)
+			if idx := phpVersionOnlyRe.FindStringSubmatchIndex(value); idx != nil {
+				addVersionCandidate(&d, versionMatchValue(value, idx), candidate.source, candidate.confidence)
 				matched = true
 			}
 		}
@@ -747,8 +967,8 @@ func analyzePage(p *pageInfo) detection {
 	addFirstVersionMatch(&d, phpGeneratorRe, body, "HTML: meta generator", 85)
 	addFirstVersionMatch(&d, phpGeneratorAltRe, body, "HTML: meta generator", 85)
 	addFirstVersionMatch(&d, phpZendOpcacheRe, text, "HTML: Zend OPcache", 78)
-	if m := phpZendVersionRe.FindStringSubmatch(text); m != nil {
-		if converted, ok := phpVersionFromZend(m[1]); ok {
+	if idx := phpZendVersionRe.FindStringSubmatchIndex(text); idx != nil {
+		if converted, ok := phpVersionFromZend(versionMatchValue(text, idx)); ok {
 			addVersionCandidate(&d, converted, "HTML: Zend Engine (omräknad)", 75)
 		}
 	}
@@ -866,9 +1086,15 @@ func appendUnique(list []string, values ...string) []string {
 }
 
 func cleanVersion(raw string) string {
-	m := phpVersionPrefixRe.FindStringSubmatch(strings.TrimSpace(raw))
+	raw = strings.TrimSpace(raw)
+	m := phpVersionPrefixRe.FindStringSubmatch(raw)
 	if m == nil {
-		return strings.TrimSpace(raw)
+		return raw
+	}
+	if hasPreReleaseSuffix(raw) {
+		// Keep RC/dev/beta markers so assessPHPVersion can return unknown
+		// instead of treating the numeric prefix as a final release.
+		return raw
 	}
 	if m[3] != "" {
 		return m[1] + "." + m[2] + "." + m[3]

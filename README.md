@@ -44,7 +44,7 @@ Kontrollera i denna ordning:
    Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
    ```
    Hashvärdet ska stå i `release/SHA256SUMS.txt`. Stämmer det inte är filen ofullständigt nedladdad – ladda ner igen.
-3. **Kontrollera filstorleken.** `.exe`-filen ska vara **7 995 392 byte** (cirka 7,5 MiB) i version 1.2.1. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
+3. **Kontrollera filstorleken.** `.exe`-filen ska vara **8 010 752 byte** (cirka 7,5 MiB) i version 1.3.0. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
 4. **Avblockera filen.** Högerklicka → **Egenskaper** → kryssa i **Avblockera** (Unblock) → **OK**, eller:
    ```powershell
    Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
@@ -68,7 +68,7 @@ Kontrollera i denna ordning:
    cd PHP2SHELL-CHECKER
    .\build-windows.bat
    ```
-10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.2.1` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
+10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.3.0` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
 
 > **Smart App Control / S-läge:** Windows 11 kan blockera osignerade program. Kontrollera **Windows-säkerhet → App- och webbläsarkontroll**. Smart App Control kan stängas av om du litar på filen (det går inte att slå på igen utan ominstallation). Windows i **S-läge** kan bara köra program från Microsoft Store.
 
@@ -129,10 +129,15 @@ Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `ht
 | Tidsgräns | 10 s | Maximal tid per webbplats. |
 | Samtidiga | 5 | Antal webbplatser som skannas parallellt. |
 | Fördröjning/värd | 250 ms | Minsta tid mellan anrop till samma värd. |
+| Försök igen | 2 | Antal extra försök vid HTTP 429/503. Följer `Retry-After` (max 30 s) och använder exponentiell backoff (500 ms–10 s). |
 | Följ omdirigeringar | På | Följer upp till 6 omdirigeringar. |
 | Djup versionanalys | På | Kombinerar PHP-indikatorer från cookies med versioner från svarshuvuden, HTML, phpinfo-liknande sidor och flera vanliga diagnostiksökvägar. Provar även webbplatsens rot om den aktuella katalogen inte ger en fullständig version. Stoppar så snart en fullständig version hittats, men kan innebära fler anrop och längre skanningstid. |
 | Ignorera TLS-fel | Av | Användbart för servrar med trasiga eller självsignerade certifikat. |
-| User-Agent | `PHP2ShellChecker/1.2.1 …` | Kan ändras om en sajt blockerar skannern. |
+| User-Agent | `PHP2ShellChecker/1.3.0 …` | Kan ändras om en sajt blockerar skannern. |
+| Proxy | Systemets inställning | `http://`, `https://`, `direct`, `none`, `env` eller tom. |
+| Egna headers/cookies | Tomt | Skickas med varje GET-förfrågan. Reserverade hop-by-hop-headers filtreras bort. |
+
+Headers, cookies och proxy-URL sparas inte i webbläsarens `localStorage`, eftersom de kan innehålla autentiseringsuppgifter.
 
 ## Bedömningar
 
@@ -154,6 +159,8 @@ PHP2Shell påverkar PHP 5.4 och senare. Följande versioner innehåller rättels
 - PHP **8.3.36** eller senare
 - PHP **8.2.35** eller senare
 - PHP 8.1 och äldre: end-of-life. PHP-projektet har publicerat källbackporter för 7.4, 8.0 och 8.1; äldre grenar kräver leverantörsbackport.
+
+Förhandsversioner och utvecklingsbyggen (`RC`, `beta`, `alpha`, `dev`, `snapshot` och `preview`) behandlas som **PHP – okänd version** eftersom de inte kan antas innehålla den slutliga säkerhetsrättelsen.
 
 ### CVE-2026-115560 och session.upload_progress
 
@@ -252,6 +259,12 @@ kontrollsummor stämmer:
 ./verify-release.sh
 ```
 
+Kör worst-case-prestandatestet för 10 000 mål med djupanalys:
+
+```bash
+go test -run '^$' -bench BenchmarkWorstCase10000TargetsDeepCheck -benchtime=1x
+```
+
 CI kör formatering, `go vet`, race-tester, `staticcheck`, `govulncheck`,
 korsbygge och release-verifiering vid varje push och pull request.
 
@@ -265,6 +278,7 @@ korsbygge och release-verifiering vid varje push och pull request.
 ├── advisory.go             # CVE-2026-115560 och session.upload_progress
 ├── version.go              # Jämförelse mot rättade PHP-versioner
 ├── fuzz_test.go            # Fuzz-tester för parser och analys
+├── benchmark_test.go       # Prestandatest för 10 000 mål med djupanalys
 ├── web/index.html          # Grafiskt gränssnitt (HTML/CSS/JS)
 ├── build.sh                # Bygger Linux + Windows, ZIP och kontrollsummor
 ├── build-windows.bat       # Bygger Windows lokalt

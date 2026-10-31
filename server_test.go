@@ -187,6 +187,21 @@ func TestScanEndpointRequiresToken(t *testing.T) {
 	}
 }
 
+func TestScanEndpointRejectsInvalidProxy(t *testing.T) {
+	app := mustNewApp(t)
+	payload := `{"targets":["https://example.com"],"options":{"proxyUrl":"ftp://proxy.example"}}`
+	request := httptest.NewRequest(http.MethodPost, "/api/scan", strings.NewReader(payload))
+	request.Host = "127.0.0.1"
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Scanner-Token", app.token)
+	recorder := httptest.NewRecorder()
+
+	app.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestScanEndpointRejectsWrongContentType(t *testing.T) {
 	app := mustNewApp(t)
 	request := httptest.NewRequest(http.MethodPost, "/api/scan", strings.NewReader(`{"targets":["https://example.com"]}`))
