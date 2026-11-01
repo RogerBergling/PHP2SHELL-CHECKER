@@ -14,6 +14,15 @@ Ingen Python-, Java- eller Go-installation behövs för att köra filerna.
 
 Mer dokumentation: [lokal API](docs/API.md) · [code signing](docs/CODE_SIGNING.md) · [supply chain](docs/SUPPLY_CHAIN.md) · [ändringslogg](CHANGELOG.md) · [säkerhetspolicy](SECURITY.md) · [utveckling](CONTRIBUTING.md) · [MIT-licens](LICENSE) · [tredjepartsnotiser](THIRD_PARTY_NOTICES).
 
+## Skärmbilder
+
+![Huvudvy med skanningsresultat](docs/images/overview.png)
+
+![Detaljvy med PHP-versionkällor, djupkontroller och CVE-rekommendation](docs/images/evidence.png)
+
+Bilderna visar exempeldata från lokala testsidor. Verktyget visar version,
+buildnummer, byggtid och källcommit längst upp i gränssnittet.
+
 ## Snabbstart
 
 ### Windows
@@ -298,6 +307,7 @@ korsbygge och release-verifiering vid varje push och pull request.
 ├── docs/API.md             # Dokumentation för det lokala API:et
 ├── docs/CODE_SIGNING.md    # Code signing, certifikat och EDR
 ├── docs/SUPPLY_CHAIN.md    # Branch protection, SBOM och releaseprovenance
+├── docs/images/            # Skärmbilder för README
 ├── .github/workflows/      # CI: test, statisk analys och korsbygge
 ├── CHANGELOG.md            # Versionshistorik
 ├── SECURITY.md             # Säkerhetspolicy och rapportering
