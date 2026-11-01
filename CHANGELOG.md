@@ -3,6 +3,16 @@
 All notable changes are documented here. The project follows semantic
 versioning for the application and the local API.
 
+## [1.4.1] - 2026-11-01
+
+### Added
+
+- Build metadata shown on the main page: version, build time, build number
+  and source commit.
+- `buildTime`, `buildNumber` and `buildCommit` in `/api/health`.
+- Build metadata printed by `--version`.
+- `SOURCE_DATE_EPOCH` support for reproducible timestamped builds.
+
 ## [1.4.0] - 2026-10-31
 
 ### Added

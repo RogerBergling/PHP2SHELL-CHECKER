@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	appVersion       = "1.4.0"
+	appVersion       = "1.4.1"
 	apiVersion       = 1
 	defaultUserAgent = "PHP2ShellChecker/" + appVersion + " (defensive vulnerability check)"
 )
@@ -108,6 +108,9 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	page := strings.ReplaceAll(indexHTML, "{{TOKEN}}", a.token)
 	page = strings.ReplaceAll(page, "{{VERSION}}", a.version)
+	page = strings.ReplaceAll(page, "{{BUILD_NUMBER}}", buildNumber)
+	page = strings.ReplaceAll(page, "{{BUILD_TIME}}", buildTime)
+	page = strings.ReplaceAll(page, "{{BUILD_COMMIT}}", buildCommit)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.WriteString(w, page)
 }
@@ -122,6 +125,9 @@ func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"apiVersion":    apiVersion,
 		"version":       a.version,
+		"buildTime":     buildTime,
+		"buildNumber":   buildNumber,
+		"buildCommit":   buildCommit,
 		"fixedVersions": fixedVersions,
 		"cves":          []string{"CVE-2026-109618", "CVE-2026-109619", cveUploadProgress},
 		"advisories": []map[string]string{

@@ -24,3 +24,18 @@ build/
 # Lokala editorer och loggar
 .vscode/
 *.log
+
+# git-create: secret and safety patterns
+id_rsa
+*.p12
+*.pfx
+*.jks
+id_dsa
+id_ecdsa
+*.kdbx
+.netrc
+.npmrc
+.pypirc
+credentials.json
+terraform.tfstate
+terraform.tfstate.*

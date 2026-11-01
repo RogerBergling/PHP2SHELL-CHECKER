@@ -66,12 +66,16 @@ func TestIndexServesTokenAndVersion(t *testing.T) {
 		app.token,
 		`name="scanner-version" content="` + appVersion + `"`,
 		`value="PHP2ShellChecker/` + appVersion + ` (defensive vulnerability check)"`,
+		`id="buildInfo"`,
+		`build #` + buildNumber,
+		buildTime,
+		buildCommit,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("index body does not contain %q", want)
 		}
 	}
-	for _, placeholder := range []string{"{{TOKEN}}", "{{VERSION}}"} {
+	for _, placeholder := range []string{"{{TOKEN}}", "{{VERSION}}", "{{BUILD_NUMBER}}", "{{BUILD_TIME}}", "{{BUILD_COMMIT}}"} {
 		if strings.Contains(body, placeholder) {
 			t.Fatalf("index body still contains unresolved placeholder %q", placeholder)
 		}
@@ -253,5 +257,10 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 	if body["apiVersion"] != float64(apiVersion) {
 		t.Fatalf("apiVersion = %v, want %d", body["apiVersion"], apiVersion)
+	}
+	if body["buildTime"] != buildTime || body["buildNumber"] != buildNumber || body["buildCommit"] != buildCommit {
+		t.Fatalf("build fields = %v/%v/%v, want %q/%q/%q",
+			body["buildTime"], body["buildNumber"], body["buildCommit"],
+			buildTime, buildNumber, buildCommit)
 	}
 }

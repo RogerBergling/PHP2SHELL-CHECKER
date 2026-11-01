@@ -22,6 +22,7 @@ func main() {
 
 	if *showVersion {
 		fmt.Printf("PHP2Shell Checker %s\n", appVersion)
+		fmt.Println(buildInfoText())
 		return
 	}
 

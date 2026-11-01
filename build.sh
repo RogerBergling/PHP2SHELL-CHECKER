@@ -11,22 +11,30 @@ for tool in "$GO_BIN" zip gzip base64 sha256sum; do
   fi
 done
 
-VERSION="$("$GO_BIN" run . --version | awk '{print $3}')"
+VERSION="$("$GO_BIN" run . --version | awk 'NR == 1 {print $3}')"
+BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
+BUILD_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+  BUILD_TIME="$(date -u -d "@${SOURCE_DATE_EPOCH}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || printf '%s' "$BUILD_TIME")"
+fi
+LDFLAGS="-s -w -X main.buildTime=${BUILD_TIME} -X main.buildNumber=${BUILD_NUMBER} -X main.buildCommit=${BUILD_COMMIT}"
 mkdir -p release
 
-echo "Bygger PHP2Shell Checker ${VERSION}..."
+echo "Bygger PHP2Shell Checker ${VERSION} (build #${BUILD_NUMBER}, ${BUILD_TIME}, ${BUILD_COMMIT})..."
 
-# -buildvcs=false gör att binärerna blir identiska oavsett git-status.
+# -buildvcs=false undviker VCS-beroende. Buildnummer, byggtid och commit
+# injiceras separat så att gränssnittet kan visa exakt vilken build som körs.
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$GO_BIN" build \
   -trimpath \
   -buildvcs=false \
-  -ldflags "-s -w" \
+  -ldflags "$LDFLAGS" \
   -o "release/PHP2Shell-Checker-Linux-x64" .
 
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 "$GO_BIN" build \
   -trimpath \
   -buildvcs=false \
-  -ldflags "-s -w" \
+  -ldflags "$LDFLAGS" \
   -o "release/PHP2Shell-Checker-Windows-x64.exe" .
 
 chmod +x "release/PHP2Shell-Checker-Linux-x64"

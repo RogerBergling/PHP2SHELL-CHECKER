@@ -28,7 +28,10 @@ Example response:
 ```json
 {
   "apiVersion": 1,
-  "version": "1.4.0",
+  "version": "1.4.1",
+  "buildTime": "2026-11-01T10:20:46Z",
+  "buildNumber": "13",
+  "buildCommit": "fe211ff",
   "fixedVersions": {
     "8.2": "8.2.35",
     "8.3": "8.3.36",
@@ -76,7 +79,7 @@ Request body:
     "insecureTls": false,
     "deepCheck": true,
     "allowPrivateTargets": false,
-    "userAgent": "PHP2ShellChecker/1.4.0 (defensive vulnerability check)",
+    "userAgent": "PHP2ShellChecker/1.4.1 (defensive vulnerability check)",
     "proxyUrl": "",
     "headers": {
       "Authorization": "Bearer example"

@@ -6,10 +6,18 @@ set CGO_ENABLED=0
 set GOOS=windows
 set GOARCH=amd64
 
+set "BUILD_TIME=development"
+for /f "delims=" %%i in ('powershell -NoProfile -ExecutionPolicy Bypass -File build-time.ps1') do set "BUILD_TIME=%%i"
+set "BUILD_NUMBER=0"
+for /f "delims=" %%i in ('git rev-list --count HEAD 2^>nul') do set "BUILD_NUMBER=%%i"
+set "BUILD_COMMIT=unknown"
+for /f "delims=" %%i in ('git rev-parse --short HEAD 2^>nul') do set "BUILD_COMMIT=%%i"
+set "LDFLAGS=-s -w -X main.buildTime=%BUILD_TIME% -X main.buildNumber=%BUILD_NUMBER% -X main.buildCommit=%BUILD_COMMIT%"
+
 if not exist release mkdir release
 
-echo Bygger PHP2Shell Checker for Windows...
-go build -trimpath -buildvcs=false -ldflags "-s -w" -o "release\PHP2Shell-Checker-Windows-x64.exe" .
+echo Bygger PHP2Shell Checker for Windows (build #%BUILD_NUMBER%, %BUILD_TIME%, %BUILD_COMMIT%)...
+go build -trimpath -buildvcs=false -ldflags "%LDFLAGS%" -o "release\PHP2Shell-Checker-Windows-x64.exe" .
 if errorlevel 1 (
   echo Bygget misslyckades.
   exit /b 1

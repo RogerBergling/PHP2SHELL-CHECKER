@@ -44,7 +44,7 @@ Kontrollera i denna ordning:
    Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
    ```
    Hashvärdet ska stå i `release/SHA256SUMS.txt`. Stämmer det inte är filen ofullständigt nedladdad – ladda ner igen.
-3. **Kontrollera filstorleken.** `.exe`-filen ska vara **8 023 040 byte** (cirka 7,5 MiB) i version 1.4.0. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
+3. **Kontrollera filstorleken.** `.exe`-filen ska vara **8 023 040 byte** (cirka 7,5 MiB) i version 1.4.1. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
 4. **Avblockera filen.** Högerklicka → **Egenskaper** → kryssa i **Avblockera** (Unblock) → **OK**, eller:
    ```powershell
    Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
@@ -68,7 +68,7 @@ Kontrollera i denna ordning:
    cd PHP2SHELL-CHECKER
    .\build-windows.bat
    ```
-10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.4.0` ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
+10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.4.1` följt av buildnummer, byggtid och commit ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
 
 > **Smart App Control / S-läge:** Windows 11 kan blockera osignerade program. Kontrollera **Windows-säkerhet → App- och webbläsarkontroll**. Smart App Control kan stängas av om du litar på filen (det går inte att slå på igen utan ominstallation). Windows i **S-läge** kan bara köra program från Microsoft Store.
 
@@ -122,6 +122,8 @@ Stäng av med **Stäng av** i gränssnittet eller `Ctrl+C` i terminalen.
 
 Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `https://` testas först med HTTPS och därefter med HTTP om HTTPS inte kan ansluta.
 
+Längst upp i gränssnittet visas version, buildnummer, byggtid och källcommit.
+
 ### Inställningar
 
 | Inställning | Standard | Beskrivning |
@@ -134,7 +136,7 @@ Rader som börjar med `#` eller `;` ignoreras. Adresser utan `http://` eller `ht
 | Djup versionanalys | På | Kombinerar PHP-indikatorer från cookies med versioner från svarshuvuden, HTML, phpinfo-liknande sidor och flera vanliga diagnostiksökvägar. Provar även webbplatsens rot om den aktuella katalogen inte ger en fullständig version. Stoppar så snart en fullständig version hittats, men kan innebära fler anrop och längre skanningstid. |
 | Ignorera TLS-fel | Av | Användbart för servrar med trasiga eller självsignerade certifikat. |
 | Tillåt privata mål | Av | Tillåter loopback, RFC1918, link-local, metadata och reserverade nät. Krävs för interna system. |
-| User-Agent | `PHP2ShellChecker/1.4.0 …` | Kan ändras om en sajt blockerar skannern. |
+| User-Agent | `PHP2ShellChecker/1.4.1 …` | Kan ändras om en sajt blockerar skannern. |
 | Proxy | Systemets inställning | `http://`, `https://`, `direct`, `none`, `env` eller tom. |
 | Egna headers/cookies | Tomt | Skickas med varje GET-förfrågan. Reserverade hop-by-hop-headers filtreras bort. |
 
@@ -250,7 +252,10 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldfl
   -o release/PHP2Shell-Checker-Windows-x64.exe .
 ```
 
-`-buildvcs=false` gör bygget reproducerbart: samma källkod och samma Go-version ger alltid samma binär och samma SHA-256, oavsett git-status.
+`-buildvcs=false` tar bort VCS-beroende från binären. `build.sh` injicerar
+buildnummer, byggtid och källcommit så att de visas i gränssnittet. Sätt
+`SOURCE_DATE_EPOCH` för en reproducerbar byggtid. En manuell `go build` utan
+dessa `-ldflags` visar `development`, `dev` och `unknown` som buildinfo.
 
 Kör tester:
 

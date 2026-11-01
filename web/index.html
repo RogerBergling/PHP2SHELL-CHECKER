@@ -72,6 +72,7 @@
   }
   h1 { margin: 0; font-size: clamp(19px, 2.2vw, 26px); letter-spacing: -.02em; }
   .tagline { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+  .build-info { margin: 3px 0 0; color: var(--muted-2); font-family: var(--mono); font-size: 10.5px; }
   .top-actions { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
   .version-pill {
     font-family: var(--mono); font-size: 11px; color: var(--muted);
@@ -303,6 +304,7 @@
     <div>
       <h1>PHP2Shell Checker</h1>
       <p class="tagline">Defensiv kontroll av PHP, PHP2Shell (CVE-2026-109618 &amp; CVE-2026-109619) och CVE-2026-115560</p>
+      <p class="build-info" id="buildInfo">Version {{VERSION}} · build #{{BUILD_NUMBER}} · {{BUILD_TIME}} · commit {{BUILD_COMMIT}}</p>
     </div>
   </div>
   <div class="top-actions">
@@ -487,7 +489,7 @@
 </details>
 
 <footer>
-  <span>PHP2Shell Checker v{{VERSION}} · defensiv kontroll · inga exploit-payloads</span>
+  <span>PHP2Shell Checker v{{VERSION}} · build #{{BUILD_NUMBER}} · {{BUILD_TIME}} · defensiv kontroll · inga exploit-payloads</span>
   <span>Använd endast med tillstånd från systemets ägare.</span>
 </footer>
 
@@ -1497,6 +1499,9 @@
   updateStats();
   fetch("/api/health").then((response) => response.json()).then((data) => {
     if (data.version) $("versionPill").textContent = "v" + data.version;
+    if (data.buildTime) {
+      $("buildInfo").textContent = `Version ${data.version} · build #${data.buildNumber} · ${data.buildTime} · commit ${data.buildCommit}`;
+    }
   }).catch(() => {});
 })();
 </script>
