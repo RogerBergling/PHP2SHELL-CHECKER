@@ -33,7 +33,7 @@ if [ "$magic" != "4d5a" ]; then
 fi
 
 echo "Kontrollerar Linux-version..."
-actual_version="$(./PHP2Shell-Checker-Linux-x64 --version)"
+actual_version="$(./PHP2Shell-Checker-Linux-x64 --version | head -n 1)"
 if [ "$actual_version" != "PHP2Shell Checker $version" ]; then
   echo "FEL: Linux-binären rapporterar '$actual_version', förväntade 'PHP2Shell Checker $version'" >&2
   exit 1

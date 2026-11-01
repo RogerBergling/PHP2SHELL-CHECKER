@@ -45,7 +45,8 @@ go test -run '^$' -bench BenchmarkWorstCase10000TargetsDeepCheck -benchtime=1x
 2. Update the version and EXE size in `README.md` and `release/README.txt`.
 3. Update `CHANGELOG.md`.
 4. Run the full test suite.
-5. Build the release:
+5. Build the release. `build.sh` injects build time, commit count and source
+   commit automatically:
 
    ```bash
    ./build.sh

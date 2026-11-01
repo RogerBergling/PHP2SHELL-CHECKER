@@ -31,7 +31,7 @@ Example response:
   "version": "1.4.1",
   "buildTime": "2026-11-01T10:20:46Z",
   "buildNumber": "13",
-  "buildCommit": "fe211ff",
+  "buildCommit": "ac0485a",
   "fixedVersions": {
     "8.2": "8.2.35",
     "8.3": "8.3.36",
