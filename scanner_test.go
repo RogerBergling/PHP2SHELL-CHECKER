@@ -4,11 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -27,7 +31,20 @@ func intPtr(value int) *int {
 
 func newLocalScanner(opts ScanOptions) *Scanner {
 	opts.AllowPrivateTargets = true
-	return NewScanner(opts)
+	scanner, err := NewScanner(opts)
+	if err != nil {
+		panic(err)
+	}
+	return scanner
+}
+
+func newTestScanner(t *testing.T, opts ScanOptions) *Scanner {
+	t.Helper()
+	scanner, err := NewScanner(opts)
+	if err != nil {
+		t.Fatalf("NewScanner: %v", err)
+	}
+	return scanner
 }
 
 func TestAssessPHPVersion(t *testing.T) {
@@ -238,7 +255,7 @@ func TestScanBlocksPrivateTargetByDefault(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := NewScanner(ScanOptions{
+	result := newTestScanner(t, ScanOptions{
 		TimeoutSeconds:  3,
 		DeepCheck:       false,
 		FollowRedirects: true,
@@ -319,7 +336,7 @@ func TestValidateTargetURL(t *testing.T) {
 }
 
 func TestScanBlocksRedirectToPrivateTarget(t *testing.T) {
-	scanner := NewScanner(ScanOptions{
+	scanner := newTestScanner(t, ScanOptions{
 		TimeoutSeconds:  3,
 		DeepCheck:       false,
 		FollowRedirects: true,
@@ -409,6 +426,143 @@ func TestRedirectKeepsCustomHeadersWithinSameOrigin(t *testing.T) {
 	}
 	if got := headers.Get("Cookie"); !strings.Contains(got, "session=secret") {
 		t.Fatalf("Cookie = %q, want session=secret on a same-origin redirect", got)
+	}
+}
+
+func TestBlockPrivateDialerControl(t *testing.T) {
+	for _, address := range []string{
+		"127.0.0.1:80",
+		"[::1]:80",
+		"10.0.0.1:443",
+		"169.254.169.254:80",
+	} {
+		if err := blockPrivateDialerControl("tcp", address, nil); !errors.Is(err, errBlockedTarget) {
+			t.Fatalf("blockPrivateDialerControl(%q) = %v, want errBlockedTarget", address, err)
+		}
+	}
+	for _, address := range []string{"8.8.8.8:443", "[2001:4860:4860::8888]:443"} {
+		if err := blockPrivateDialerControl("tcp", address, nil); err != nil {
+			t.Fatalf("blockPrivateDialerControl(%q) = %v, want nil", address, err)
+		}
+	}
+}
+
+func TestScanRedactsCredentials(t *testing.T) {
+	result := newLocalScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		MaxRetries:      intPtr(0),
+	}).Scan(context.Background(), "https://user:secret@example.com/")
+
+	if result.Verdict != "error" {
+		t.Fatalf("Verdict = %q, want error", result.Verdict)
+	}
+	if strings.Contains(result.Input, "secret") {
+		t.Fatalf("Input = %q, contains the password", result.Input)
+	}
+	if result.Input != "https://redacted@example.com/" {
+		t.Fatalf("Input = %q, want redacted URL", result.Input)
+	}
+}
+
+func TestScanCustomCA(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "<html>ok</html>")
+	}))
+	defer server.Close()
+
+	caPath := filepath.Join(t.TempDir(), "ca.pem")
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	if err := os.WriteFile(caPath, certPEM, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	trusted := newLocalScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		MaxRetries:      intPtr(0),
+		CACertFile:      caPath,
+	}).Scan(context.Background(), server.URL)
+	if trusted.Verdict == "error" {
+		t.Fatalf("trusted scan failed: %s", trusted.Error)
+	}
+
+	untrusted := newLocalScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		MaxRetries:      intPtr(0),
+	}).Scan(context.Background(), server.URL)
+	if untrusted.Verdict != "error" || !strings.Contains(strings.ToLower(untrusted.Error), "tls") {
+		t.Fatalf("untrusted scan = %q / %q, want a TLS error", untrusted.Verdict, untrusted.Error)
+	}
+
+	if _, err := NewScanner(ScanOptions{CACertFile: filepath.Join(t.TempDir(), "missing.pem")}); err == nil {
+		t.Fatal("NewScanner with a missing CA file succeeded")
+	}
+}
+
+func TestScanRecordsInsecureTLS(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "<html>ok</html>")
+	}))
+	defer server.Close()
+
+	result := newLocalScanner(ScanOptions{
+		TimeoutSeconds:  3,
+		DeepCheck:       false,
+		FollowRedirects: true,
+		MaxRetries:      intPtr(0),
+		InsecureTLS:     true,
+	}).Scan(context.Background(), server.URL)
+	if result.Verdict == "error" {
+		t.Fatalf("scan failed: %s", result.Error)
+	}
+	if !result.InsecureTLSUsed {
+		t.Fatal("InsecureTLSUsed = false, want true")
+	}
+	found := false
+	for _, item := range result.Evidence {
+		if strings.Contains(item, "TLS-verifiering") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Evidence = %#v, want a TLS-verification warning", result.Evidence)
+	}
+}
+
+func TestScanStopsUnresponsiveHost(t *testing.T) {
+	var requests atomic.Int32
+	scanner := newTestScanner(t, ScanOptions{
+		TimeoutSeconds:      2,
+		DeepCheck:           false,
+		FollowRedirects:     true,
+		DelayMS:             0,
+		MaxRetries:          intPtr(0),
+		AllowPrivateTargets: true,
+	})
+	scanner.client.Transport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		requests.Add(1)
+		return nil, context.DeadlineExceeded
+	})
+
+	for i := 0; i < hostFailureThreshold; i++ {
+		result := scanner.Scan(context.Background(), fmt.Sprintf("http://8.8.8.8/%d", i))
+		if result.Verdict != "error" {
+			t.Fatalf("scan %d verdict = %q, want error", i, result.Verdict)
+		}
+	}
+	before := requests.Load()
+	result := scanner.Scan(context.Background(), "http://8.8.8.8/after-threshold")
+	if result.Verdict != "error" || !strings.Contains(result.Error, "svarar inte") {
+		t.Fatalf("post-threshold result = %q / %q, want host-unresponsive error", result.Verdict, result.Error)
+	}
+	if after := requests.Load(); after != before {
+		t.Fatalf("requests after threshold = %d, want no new request after %d", after, before)
 	}
 }
 
@@ -547,6 +701,7 @@ func TestNormalizeURL(t *testing.T) {
 		{"http://example.com:8080/a", "http://example.com:8080/a", true, false},
 		{"  <https://example.com/a>  ", "https://example.com/a", true, false},
 		{"ftp://example.com", "", false, true},
+		{"https://user:secret@example.com/", "", true, true},
 		{"", "", false, true},
 		{"not a url", "", false, true},
 	}

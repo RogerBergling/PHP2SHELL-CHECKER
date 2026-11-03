@@ -19,13 +19,19 @@ import (
 )
 
 const (
-	appVersion       = "1.4.1"
+	appVersion       = "1.5.0"
 	apiVersion       = 1
 	defaultUserAgent = "PHP2ShellChecker/" + appVersion + " (defensive vulnerability check)"
 )
 
 //go:embed web/index.html
 var indexHTML string
+
+//go:embed web/app.css
+var appCSS string
+
+//go:embed web/app.js
+var appJS string
 
 type App struct {
 	token      string
@@ -76,11 +82,33 @@ func randomToken() (string, error) {
 
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/app.css", a.handleCSS)
+	mux.HandleFunc("/app.js", a.handleJS)
 	mux.HandleFunc("/", a.handleIndex)
 	mux.HandleFunc("/api/health", a.handleHealth)
 	mux.HandleFunc("/api/scan", a.handleScan)
 	mux.HandleFunc("/api/shutdown", a.handleShutdown)
 	return a.securityHeaders(mux)
+}
+
+func (a *App) handleCSS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	_, _ = io.WriteString(w, appCSS)
+}
+
+func (a *App) handleJS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	_, _ = io.WriteString(w, appJS)
 }
 
 func (a *App) securityHeaders(next http.Handler) http.Handler {
@@ -90,8 +118,11 @@ func (a *App) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		h.Set("X-Permitted-Cross-Domain-Policies", "none")
 		h.Set("Cache-Control", "no-store")
-		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -106,8 +137,7 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	page := strings.ReplaceAll(indexHTML, "{{TOKEN}}", a.token)
-	page = strings.ReplaceAll(page, "{{VERSION}}", a.version)
+	page := strings.ReplaceAll(indexHTML, "{{VERSION}}", a.version)
 	page = strings.ReplaceAll(page, "{{BUILD_NUMBER}}", buildNumber)
 	page = strings.ReplaceAll(page, "{{BUILD_TIME}}", buildTime)
 	page = strings.ReplaceAll(page, "{{BUILD_COMMIT}}", buildCommit)
@@ -181,7 +211,11 @@ func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid options: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	scanner := NewScanner(opts)
+	scanner, err := NewScanner(opts)
+	if err != nil {
+		http.Error(w, "invalid options: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 

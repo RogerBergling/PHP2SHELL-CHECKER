@@ -31,7 +31,7 @@ func (benchmarkRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 //
 //	go test -run '^$' -bench BenchmarkWorstCase10000TargetsDeepCheck -benchtime=1x
 func BenchmarkWorstCase10000TargetsDeepCheck(b *testing.B) {
-	scanner := NewScanner(ScanOptions{
+	scanner, err := NewScanner(ScanOptions{
 		TimeoutSeconds:      3,
 		DeepCheck:           true,
 		FollowRedirects:     true,
@@ -39,6 +39,9 @@ func BenchmarkWorstCase10000TargetsDeepCheck(b *testing.B) {
 		MaxRetries:          intPtr(0),
 		AllowPrivateTargets: true,
 	})
+	if err != nil {
+		b.Fatalf("NewScanner: %v", err)
+	}
 	scanner.client.Transport = benchmarkRoundTripper{}
 
 	targets := make([]string, 10000)

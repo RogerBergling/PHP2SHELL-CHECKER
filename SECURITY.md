@@ -7,8 +7,8 @@ binaries in `release/` should be replaced with the current release.
 
 | Version | Supported |
 | --- | --- |
-| 1.4.x | Yes |
-| 1.3.x and older | No |
+| 1.5.x | Yes |
+| 1.4.x and older | No |
 
 ## Reporting a vulnerability
 

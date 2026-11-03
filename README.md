@@ -116,10 +116,11 @@ Längst upp i gränssnittet visas version, buildnummer, byggtid och källcommit.
 | Försök igen | 2 | Antal extra försök vid HTTP 429/503. Följer `Retry-After` (max 30 s) och använder exponentiell backoff (500 ms–10 s). |
 | Följ omdirigeringar | På | Följer upp till 6 omdirigeringar. |
 | Djup versionanalys | På | Kombinerar PHP-indikatorer från cookies med versioner från svarshuvuden, HTML, phpinfo-liknande sidor och flera vanliga diagnostiksökvägar. Provar även webbplatsens rot om den aktuella katalogen inte ger en fullständig version. Stoppar så snart en fullständig version hittats, men kan innebära fler anrop och längre skanningstid. |
-| Ignorera TLS-fel | Av | Användbart för servrar med trasiga eller självsignerade certifikat. |
+| Ignorera TLS-fel | Av | Användbart för servrar med trasiga eller självsignerade certifikat. Resultatet markerar att verifieringen var avstängd. |
 | Tillåt privata mål | Av | Tillåter loopback, RFC1918, link-local, metadata och reserverade nät. Krävs för interna system. |
-| User-Agent | `PHP2ShellChecker/1.4.1 …` | Kan ändras om en sajt blockerar skannern. |
+| User-Agent | `PHP2ShellChecker/1.5.0 …` | Kan ändras om en sajt blockerar skannern. |
 | Proxy | Systemets inställning | `http://`, `https://`, `direct`, `none`, `env` eller tom. |
+| CA-certifikat | Systemets | Valfri PEM-fil med extra CA-certifikat för interna servrar. |
 | Egna headers/cookies | Tomt | Skickas med varje GET-förfrågan. Reserverade hop-by-hop-headers filtreras bort. |
 
 Headers, cookies och proxy-URL sparas inte i webbläsarens `localStorage`, eftersom de kan innehålla autentiseringsuppgifter.
@@ -127,6 +128,9 @@ Headers, cookies och proxy-URL sparas inte i webbläsarens `localStorage`, efter
 Privata, lokala och reserverade mål blockeras som standard, även vid
 omdirigering. Aktivera **Tillåt privata mål** endast för interna system som du
 har uttryckligt tillstånd att skanna.
+
+Efter tre konsekutiva nätverksfel mot samma värd stoppas ytterligare anrop till
+värden under resten av skanningen.
 
 ## Bedömningar
 
@@ -168,7 +172,7 @@ Eftersom `php.ini` inte kan läsas över HTTP är kontrollen en heuristik:
 - **Kontrollera konfigurationen** visas när PHP upptäcks.
 - **Möjligen påverkad – kontrollera** visas när sajten dessutom använder en PHP-sessionscookie och har filuppladdning i HTML-svaret. Det är en indikator, inte ett bevis på att applikationen byter `session.serialize_handler` i runtime.
 
-Skannern skickar inga uppladdningar och ändrar inget. Verifiera alltid `session.upload_progress.enabled` på servern.
+Skannern skickar inga uppladdningar och gör inga avsiktliga ändringar. Verifiera alltid `session.upload_progress.enabled` på servern.
 
 ## Hur kontrollen går till
 
@@ -185,7 +189,7 @@ Skannern är **icke-invasiv** och skickar inga exploit-payloads. Den gör vanlig
 - PHP-sessionscookies och filuppladdningsformulär, som underlag för CVE-2026-115560-rekommendationen.
 - Med **Djup versionanalys**, när huvudsvaret inte ger en fullständig version, även `index.php`, `phpinfo.php`, `info.php`, `php-info.php`, `phpversion.php`, `test.php` och en slumpmässig `.php`-kontroll i samma katalog. Hittas ingen fullständig version provas samma sökvägar i webbplatsens rot. Alla kontroller loggas i resultatet med URL, HTTP-status och eventuell version.
 
-Om en PHP-version hittas jämförs den med de rättade versionerna ovan. Skannern försöker aldrig utnyttja sårbarheten, ladda upp filer eller ändra något på servern.
+Om en PHP-version hittas jämförs den med de rättade versionerna ovan. Skannern skickar inga exploit-payloads, laddar inte upp filer och gör inga avsiktliga ändringar. Vanliga GET-anrop kan i ovanligt byggda applikationer ändå ha sidoeffekter.
 
 ## Bevis och rapportering
 
@@ -210,9 +214,10 @@ Rapporterna beskriver uttryckligen att kontrollen är icke-invasiv: inga exploit
 
 - Använd skannern **endast** på system som du äger eller har uttryckligt tillstånd att testa.
 - Privata, lokala och reserverade mål blockeras som standard, även vid omdirigering. **Tillåt privata mål** kräver uttryckligt tillstånd för de interna systemen.
-- Den lokala servern lyssnar bara på `127.0.0.1` och skyddas av en slumpmässig token per start.
-- Inga resultat eller webbplatser skickas till tredje part.
+- Den lokala servern lyssnar bara på `127.0.0.1` och skyddas av en slumpmässig token per start. Token skickas i URL-fragmentet och exponeras inte i startsidan; den sparas bara i webbläsarens `sessionStorage`.
+- Appen har ingen telemetri och skickar inte resultat till någon molntjänst. Om du använder proxy, EDR eller annan nätverksinspektion kan dessa se mål-URL:er och trafik.
 - Skannern är avsedd för defensiv kontroll och inventering.
+- Rapportfiler kan innehålla känsliga URL:er, svarshuvuden och bevis. Hantera dem enligt organisationens dataskyddsregler.
 
 ## Bygga från källkod
 

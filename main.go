@@ -38,13 +38,13 @@ func main() {
 		return
 	}
 
-	url := "http://" + listener.Addr().String() + "/"
+	appURL := "http://" + listener.Addr().String() + "/#token=" + app.token
 	fmt.Printf("PHP2Shell Checker %s\n", appVersion)
-	fmt.Printf("Öppna %s om webbläsaren inte startar automatiskt.\n", url)
+	fmt.Printf("Öppna %s om webbläsaren inte startar automatiskt.\n", appURL)
 	fmt.Println("Stäng av med knappen \"Stäng av\" i gränssnittet eller med Ctrl+C.")
 
 	if !*noBrowser {
-		go openBrowser(url)
+		go openBrowser(appURL)
 	}
 
 	server := &http.Server{

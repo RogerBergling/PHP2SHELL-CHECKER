@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -14,11 +15,13 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -40,6 +43,7 @@ type ScanOptions struct {
 	Headers             map[string]string `json:"headers,omitempty"`
 	Cookies             map[string]string `json:"cookies,omitempty"`
 	ProxyURL            string            `json:"proxyUrl,omitempty"`
+	CACertFile          string            `json:"caCertFile,omitempty"`
 }
 
 func (o *ScanOptions) applyDefaults() {
@@ -75,6 +79,7 @@ func (o *ScanOptions) applyDefaults() {
 	o.Headers = sanitizeRequestHeaders(o.Headers)
 	o.Cookies = sanitizeRequestCookies(o.Cookies)
 	o.ProxyURL = strings.TrimSpace(o.ProxyURL)
+	o.CACertFile = strings.TrimSpace(o.CACertFile)
 	o.UserAgent = strings.TrimSpace(o.UserAgent)
 	if o.UserAgent == "" {
 		o.UserAgent = defaultUserAgent
@@ -276,6 +281,39 @@ func validateTargetURL(ctx context.Context, u *url.URL) error {
 	return nil
 }
 
+func proxyConfigured(opts ScanOptions) bool {
+	switch strings.ToLower(strings.TrimSpace(opts.ProxyURL)) {
+	case "direct", "none":
+		return false
+	case "", "env":
+		for _, key := range []string{
+			"HTTPS_PROXY", "https_proxy",
+			"HTTP_PROXY", "http_proxy",
+			"ALL_PROXY", "all_proxy",
+		} {
+			if strings.TrimSpace(os.Getenv(key)) != "" {
+				return true
+			}
+		}
+		return false
+	default:
+		return true
+	}
+}
+
+// blockPrivateDialerControl validates the address that is actually dialed,
+// closing the DNS-rebinding window between the preflight lookup and connect.
+func blockPrivateDialerControl(_ string, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil
+	}
+	if ip := parseTargetIP(host); ip != nil && isBlockedTargetIP(ip) {
+		return errBlockedTarget
+	}
+	return nil
+}
+
 func (s *Scanner) validateTarget(ctx context.Context, u *url.URL) error {
 	if s.opts.AllowPrivateTargets {
 		return nil
@@ -303,6 +341,57 @@ func (s *Scanner) validateTarget(ctx context.Context, u *url.URL) error {
 	}
 	s.targetChecks.Store(host, targetCheck{allowed: true, expires: now.Add(targetCheckTTL)})
 	return nil
+}
+
+func targetHost(target string) string {
+	u, err := url.Parse(target)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Host)
+}
+
+func (s *Scanner) hostIsUnresponsive(target string) bool {
+	host := targetHost(target)
+	if host == "" {
+		return false
+	}
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	health := s.hostHealth[host]
+	return health != nil && health.unresponsive
+}
+
+func (s *Scanner) recordHostResult(target string, err error) {
+	host := targetHost(target)
+	if host == "" {
+		return
+	}
+	if err != nil && (errors.Is(err, errBlockedTarget) ||
+		errors.Is(err, errHostUnresponsive) ||
+		errors.Is(err, context.Canceled)) {
+		return
+	}
+
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	health := s.hostHealth[host]
+	if health == nil {
+		health = &hostHealth{}
+		s.hostHealth[host] = health
+	}
+	if err == nil {
+		health.failures = 0
+		health.unresponsive = false
+		return
+	}
+	if health.unresponsive {
+		return
+	}
+	health.failures++
+	if health.failures >= hostFailureThreshold {
+		health.unresponsive = true
+	}
 }
 
 func sameOrigin(a, b *url.URL) bool {
@@ -352,6 +441,7 @@ type Result struct {
 	ResponseHeaders   map[string]string  `json:"responseHeaders,omitempty"`
 	VersionCandidates []VersionCandidate `json:"versionCandidates,omitempty"`
 	DeepChecks        []DeepCheck        `json:"deepChecks,omitempty"`
+	InsecureTLSUsed   bool               `json:"insecureTlsUsed,omitempty"`
 }
 
 type pageInfo struct {
@@ -415,16 +505,29 @@ type targetCheck struct {
 	expires time.Time
 }
 
+type hostHealth struct {
+	failures     int
+	unresponsive bool
+}
+
 type Scanner struct {
 	opts         ScanOptions
 	client       *http.Client
 	limiter      *hostLimiter
 	targetChecks sync.Map // hostname -> targetCheck
+
+	healthMu   sync.Mutex
+	hostHealth map[string]*hostHealth
 }
 
-const targetCheckTTL = 30 * time.Second
+const (
+	targetCheckTTL       = 30 * time.Second
+	hostFailureThreshold = 3
+)
 
-func NewScanner(opts ScanOptions) *Scanner {
+var errHostUnresponsive = errors.New("host is unresponsive")
+
+func NewScanner(opts ScanOptions) (*Scanner, error) {
 	opts.applyDefaults()
 	timeout := time.Duration(opts.TimeoutSeconds) * time.Second
 
@@ -440,19 +543,43 @@ func NewScanner(opts ScanOptions) *Scanner {
 		}
 	}
 
+	tlsConfig := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: opts.InsecureTLS, //nolint:gosec // Opt-in for sites with broken certificates.
+	}
+	if opts.CACertFile != "" {
+		roots, err := x509.SystemCertPool()
+		if err != nil || roots == nil {
+			roots = x509.NewCertPool()
+		}
+		pemData, err := os.ReadFile(opts.CACertFile)
+		if err != nil {
+			return nil, fmt.Errorf("läsa caCertFile: %w", err)
+		}
+		if !roots.AppendCertsFromPEM(pemData) {
+			return nil, errors.New("caCertFile innehåller inga giltiga PEM-certifikat")
+		}
+		tlsConfig.RootCAs = roots
+	}
+
+	dialer := &net.Dialer{
+		Timeout:   timeout,
+		KeepAlive: 30 * time.Second,
+	}
+	if !opts.AllowPrivateTargets && !proxyConfigured(opts) {
+		dialer.Control = blockPrivateDialerControl
+	}
+
 	transport := &http.Transport{
-		Proxy: proxyFunc,
-		DialContext: (&net.Dialer{
-			Timeout:   timeout,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		Proxy:                 proxyFunc,
+		DialContext:           dialer.DialContext,
 		TLSHandshakeTimeout:   timeout,
 		ResponseHeaderTimeout: timeout,
 		ExpectContinueTimeout: 1 * time.Second,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   2,
 		IdleConnTimeout:       90 * time.Second,
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: opts.InsecureTLS}, //nolint:gosec // Opt-in for sites with broken certificates.
+		TLSClientConfig:       tlsConfig,
 	}
 
 	client := &http.Client{
@@ -460,9 +587,10 @@ func NewScanner(opts ScanOptions) *Scanner {
 		Timeout:   timeout,
 	}
 	scanner := &Scanner{
-		opts:    opts,
-		client:  client,
-		limiter: &hostLimiter{last: make(map[string]time.Time), delay: time.Duration(opts.DelayMS) * time.Millisecond},
+		opts:       opts,
+		client:     client,
+		limiter:    &hostLimiter{last: make(map[string]time.Time), delay: time.Duration(opts.DelayMS) * time.Millisecond},
+		hostHealth: make(map[string]*hostHealth),
 	}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if !opts.FollowRedirects {
@@ -484,19 +612,22 @@ func NewScanner(opts ScanOptions) *Scanner {
 			req.Header.Del("Cookie2")
 			req.Header.Del("Referer")
 		}
-		if err := scanner.validateTarget(req.Context(), req.URL); err != nil {
+		validateCtx, cancel := context.WithTimeout(req.Context(), time.Duration(opts.TimeoutSeconds)*time.Second)
+		defer cancel()
+		if err := scanner.validateTarget(validateCtx, req.URL); err != nil {
 			return err
 		}
 		return nil
 	}
-	return scanner
+	return scanner, nil
 }
 
 func (s *Scanner) Scan(ctx context.Context, raw string) (res Result) {
 	start := time.Now()
 	res = Result{
-		Input:     strings.TrimSpace(raw),
-		CheckedAt: time.Now().UTC().Format(time.RFC3339),
+		Input:           redactInput(raw),
+		CheckedAt:       time.Now().UTC().Format(time.RFC3339),
+		InsecureTLSUsed: s.opts.InsecureTLS,
 	}
 	defer func() { res.ElapsedMS = time.Since(start).Milliseconds() }()
 
@@ -525,6 +656,10 @@ func (s *Scanner) Scan(ctx context.Context, raw string) (res Result) {
 		res.VerdictLabel = "Anslutningsfel"
 		res.Error = friendlyError(err)
 		res.Detail = "Ingen kontroll kunde göras. Kontrollera adressen, nätverket eller eventuell brandvägg."
+		if errors.Is(err, errHostUnresponsive) {
+			res.VerdictLabel = "Värden svarar inte"
+			res.Detail = "Flera anslutningsförsök mot värden misslyckades. Ytterligare anrop till värden stoppades för att undvika en långsam eller överbelastad skanning."
+		}
 		return res
 	}
 
@@ -552,6 +687,9 @@ func (s *Scanner) Scan(ctx context.Context, raw string) (res Result) {
 	res.App = det.app
 	res.PHPLinks = det.phpLinks
 	res.Evidence = appendUnique(det.evidence, notes...)
+	if s.opts.InsecureTLS {
+		res.Evidence = appendUnique(res.Evidence, "TLS-verifiering var avstängd under kontrollen")
+	}
 
 	assessment := phpAssessment{}
 	if det.php {
@@ -591,6 +729,10 @@ const (
 )
 
 func (s *Scanner) fetch(ctx context.Context, target string) (*pageInfo, error) {
+	if s.hostIsUnresponsive(target) {
+		return nil, errHostUnresponsive
+	}
+
 	retries := 0
 	if s.opts.MaxRetries != nil {
 		retries = *s.opts.MaxRetries
@@ -599,8 +741,10 @@ func (s *Scanner) fetch(ctx context.Context, target string) (*pageInfo, error) {
 	for attempt := 0; ; attempt++ {
 		page, err := s.fetchOnce(ctx, target)
 		if err != nil {
+			s.recordHostResult(target, err)
 			return nil, err
 		}
+		s.recordHostResult(target, nil)
 		if page.status != http.StatusTooManyRequests && page.status != http.StatusServiceUnavailable {
 			return page, nil
 		}
@@ -667,14 +811,18 @@ func (s *Scanner) fetchOnce(ctx context.Context, target string) (*pageInfo, erro
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateTarget(ctx, u); err != nil {
+	timeout := time.Duration(s.opts.TimeoutSeconds) * time.Second
+	validateCtx, validateCancel := context.WithTimeout(ctx, timeout)
+	err = s.validateTarget(validateCtx, u)
+	validateCancel()
+	if err != nil {
 		return nil, err
 	}
 	if err := s.limiter.wait(ctx, strings.ToLower(u.Host)); err != nil {
 		return nil, err
 	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(s.opts.TimeoutSeconds)*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, target, nil)
@@ -843,7 +991,7 @@ func (s *Scanner) runDeepProbes(ctx context.Context, origin string, paths []stri
 		if err != nil {
 			check.Error = friendlyError(err)
 			checks = append(checks, check)
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || errors.Is(err, errHostUnresponsive) {
 				break
 			}
 			continue
@@ -1260,6 +1408,26 @@ func truncate(s string, max int) string {
 	return s[:max] + "…"
 }
 
+func redactInput(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	candidate := trimmed
+	addedScheme := false
+	if !strings.Contains(candidate, "://") {
+		candidate = "https://" + candidate
+		addedScheme = true
+	}
+	u, err := url.Parse(candidate)
+	if err != nil || u.User == nil {
+		return trimmed
+	}
+	u.User = url.User("redacted")
+	out := u.String()
+	if addedScheme {
+		out = strings.TrimPrefix(out, "https://")
+	}
+	return out
+}
+
 func normalizeURL(raw string) (target string, explicitScheme bool, err error) {
 	raw = strings.TrimSpace(raw)
 	raw = strings.Trim(raw, "\"'")
@@ -1288,6 +1456,9 @@ func normalizeURL(raw string) (target string, explicitScheme bool, err error) {
 	if u.Host == "" {
 		return "", explicitScheme, errors.New("webbadressen saknar värdnamn")
 	}
+	if u.User != nil {
+		return "", explicitScheme, errors.New("webbadressen får inte innehålla användarnamn eller lösenord; använd egna headers i stället")
+	}
 	if strings.ContainsAny(u.Host, " \t\r\n") {
 		return "", explicitScheme, errors.New("webbadressen innehåller ogiltiga tecken")
 	}
@@ -1310,6 +1481,9 @@ func friendlyError(err error) string {
 	}
 	if errors.Is(err, errBlockedTarget) {
 		return "målet ligger i ett privat, lokalt eller reserverat nätverk (aktivera Tillåt privata mål)"
+	}
+	if errors.Is(err, errHostUnresponsive) {
+		return "värden svarar inte – ytterligare anrop till värden stoppades"
 	}
 	if errors.Is(err, errTargetUnresolved) {
 		return "värdnamnet kunde inte slås upp (DNS)"

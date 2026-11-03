@@ -36,7 +36,7 @@ func TestNewAppGeneratesUniqueTokens(t *testing.T) {
 	}
 }
 
-func TestIndexServesTokenAndVersion(t *testing.T) {
+func TestIndexServesVersionWithoutToken(t *testing.T) {
 	app := mustNewApp(t)
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	request.Host = "127.0.0.1:8080"
@@ -60,10 +60,14 @@ func TestIndexServesTokenAndVersion(t *testing.T) {
 			t.Fatalf("%s = %q, want %q", header, got, want)
 		}
 	}
+	if csp := recorder.Header().Get("Content-Security-Policy"); strings.Contains(csp, "unsafe-inline") {
+		t.Fatalf("CSP still allows unsafe-inline: %q", csp)
+	}
 
 	body := recorder.Body.String()
 	for _, want := range []string{
-		app.token,
+		`href="/app.css"`,
+		`src="/app.js"`,
 		`name="scanner-version" content="` + appVersion + `"`,
 		`value="PHP2ShellChecker/` + appVersion + ` (defensive vulnerability check)"`,
 		`id="buildInfo"`,
@@ -75,10 +79,42 @@ func TestIndexServesTokenAndVersion(t *testing.T) {
 			t.Fatalf("index body does not contain %q", want)
 		}
 	}
+	if strings.Contains(body, app.token) {
+		t.Fatal("index body exposes the API token")
+	}
 	for _, placeholder := range []string{"{{TOKEN}}", "{{VERSION}}", "{{BUILD_NUMBER}}", "{{BUILD_TIME}}", "{{BUILD_COMMIT}}"} {
 		if strings.Contains(body, placeholder) {
 			t.Fatalf("index body still contains unresolved placeholder %q", placeholder)
 		}
+	}
+}
+
+func TestStaticAssets(t *testing.T) {
+	app := mustNewApp(t)
+	tests := []struct {
+		path        string
+		contentType string
+		body        string
+	}{
+		{"/app.css", "text/css; charset=utf-8", "--accent"},
+		{"/app.js", "application/javascript; charset=utf-8", "bootstrapToken"},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request.Host = "127.0.0.1:8080"
+			recorder := httptest.NewRecorder()
+			app.Handler().ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", recorder.Code)
+			}
+			if got := recorder.Header().Get("Content-Type"); got != test.contentType {
+				t.Fatalf("Content-Type = %q, want %q", got, test.contentType)
+			}
+			if !strings.Contains(recorder.Body.String(), test.body) {
+				t.Fatalf("asset body does not contain %q", test.body)
+			}
+		})
 	}
 }
 

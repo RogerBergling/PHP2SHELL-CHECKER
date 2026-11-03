@@ -3,6 +3,25 @@
 All notable changes are documented here. The project follows semantic
 versioning for the application and the local API.
 
+## [1.5.0] - 2026-11-03
+
+### Security
+
+- The API token is passed in the URL fragment and sessionStorage instead of
+  being embedded in the unauthenticated index page.
+- Added actual-IP dialer validation for direct connections and a timeout for
+  target DNS validation.
+- Target URLs containing usernames or passwords are rejected and redacted
+  from result input.
+- Added custom CA bundle support for internal TLS deployments.
+- Disabled TLS verification is now recorded in result evidence and exports.
+- Added a per-host circuit breaker: after three consecutive network failures,
+  further requests to that host are stopped for the remaining scan.
+- Removed `unsafe-inline` from the Content Security Policy by splitting the UI
+  into static CSS and JavaScript assets.
+- Corrected README statements about proxies, privacy, GET side effects and
+  report data handling.
+
 ## [1.4.1] - 2026-11-01
 
 ### Added

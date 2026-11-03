@@ -3,17 +3,24 @@
 The application serves a local-only HTTP API on `127.0.0.1`. The port is
 printed at startup and can be selected with `--port`.
 
-All API requests must include the random token that is embedded in the UI as:
+The random token is generated at startup and passed to the browser in the URL
+fragment, for example:
 
-```html
-<meta name="scanner-token" content="...">
+```text
+http://127.0.0.1:8080/#token=<random-token>
 ```
 
-Send it as the `X-Scanner-Token` header. Requests are also rejected unless the
-`Host` header is loopback (`127.0.0.1`, `localhost` or `::1`) and any
-`Origin` header matches the request host.
+The fragment is not sent to the server, is removed from the browser address bar
+after loading, and is stored only in `sessionStorage` for the current tab. The
+unauthenticated index page does **not** expose the token.
 
-Examples below assume the server is running on `127.0.0.1:8080`.
+Send the token as the `X-Scanner-Token` header. Requests are also rejected
+unless the `Host` header is loopback (`127.0.0.1`, `localhost` or `::1`) and
+any `Origin` header matches the request host.
+
+Examples below assume the server is running on `127.0.0.1:8080`. For
+automation, start with `--no-browser` and extract the token from the printed
+`#token=...` URL.
 
 ## Health
 
@@ -28,7 +35,7 @@ Example response:
 ```json
 {
   "apiVersion": 1,
-  "version": "1.4.1",
+  "version": "1.5.0",
   "buildTime": "2026-11-01T10:20:46Z",
   "buildNumber": "13",
   "buildCommit": "ac0485a",
@@ -79,8 +86,9 @@ Request body:
     "insecureTls": false,
     "deepCheck": true,
     "allowPrivateTargets": false,
-    "userAgent": "PHP2ShellChecker/1.4.1 (defensive vulnerability check)",
+    "userAgent": "PHP2ShellChecker/1.5.0 (defensive vulnerability check)",
     "proxyUrl": "",
+    "caCertFile": "",
     "headers": {
       "Authorization": "Bearer example"
     },
@@ -107,11 +115,16 @@ Limits and defaults:
 | `headers` | empty | object of request headers |
 | `cookies` | empty | object of cookie name/value pairs |
 | `proxyUrl` | environment proxy | `http://`, `https://`, `direct`, `none`, `env` or empty |
+| `caCertFile` | system roots | path to an additional PEM CA bundle |
 
 `maxRetries` applies to HTTP `429` and `503` responses. The scanner honours
 `Retry-After` (seconds or HTTP date) and otherwise uses exponential backoff
 starting at 500 ms, capped at 10 seconds. `Retry-After` values are capped at
 30 seconds.
+
+After three consecutive network failures against the same host, further
+requests to that host are stopped for the remainder of the scan. The results
+show `Värden svarar inte` for the skipped targets.
 
 By default, loopback, RFC1918, link-local, cloud-metadata, carrier-grade NAT
 and reserved test/documentation ranges are blocked for both the initial target
@@ -143,6 +156,7 @@ The response is `application/x-ndjson`. Each line is one JSON event:
 - `deepChecks` — each extra probe with `url`, `statusCode`, optional
   `phpVersion` and `error`
 - evidence fields such as `remoteIp`, `bodySha256` and `responseHeaders`
+- `insecureTlsUsed` when certificate verification was disabled for the scan
 
 JSON exports from the UI include `schemaVersion: 1` so downstream consumers can
 handle future format changes explicitly.
@@ -162,8 +176,9 @@ Returns `204 No Content` and closes the local server.
 ## Example
 
 ```bash
-TOKEN="$(curl -fsS http://127.0.0.1:8080/ |
-  sed -n 's/.*name="scanner-token" content="\([^"]*\)".*/\1/p')"
+# Start with --no-browser; the printed URL contains #token=...
+./PHP2Shell-Checker-Linux-x64 --no-browser --port 8080 >/tmp/php2shell.log 2>&1 &
+TOKEN="$(sed -n 's/.*#token=\([0-9a-f]*\).*/\1/p' /tmp/php2shell.log | head -n1)"
 
 curl -fsS -N \
   -H "Content-Type: application/json" \

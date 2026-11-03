@@ -1,15 +1,17 @@
 # Windows-felsökning
 
-Den här guiden gäller releasefilerna i `release/` för PHP2Shell Checker 1.4.1.
+Den här guiden gäller releasefilerna i `release/` för PHP2Shell Checker 1.5.0.
 
 ## SmartScreen eller antivirus varnar
 
-Windows SmartScreen kan varna eftersom filen inte är koddignerad. Välj
-**Mer information → Kör ändå** om du själv har byggt eller hämtat filen från en
-betrodd källa.
+Windows SmartScreen kan varna eftersom filen inte är koddignerad. Verifiera
+först SHA-256 mot en betrodd källa. Om du själv har byggt filen eller hämtat
+den från en betrodd release kan du välja **Mer information → Kör ändå**.
+Kontakta annars IT-supporten.
 
 Samma gäller om Windows Defender eller ett annat antivirusprogram flaggar
-filen. Lägg endast till ett undantag om du litar på källan.
+filen. Lägg endast till ett undantag efter IT-godkännande och endast för den
+verifierade filen. Inaktivera aldrig skyddet brett.
 
 ## Harmony EDR eller annat skyddsprogram blockerar filen
 
@@ -61,7 +63,7 @@ Kontrollera i denna ordning:
    ofullständigt nedladdad – ladda ner igen.
 
 3. **Kontrollera filstorleken.** `.exe`-filen ska vara **8 024 576 byte**
-   (cirka 7,5 MiB) i version 1.4.1. Är den 0 byte eller bara några kilobyte har
+   (cirka 7,5 MiB) i version 1.5.0. Är den 0 byte eller bara några kilobyte har
    nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för
    filen.
 
@@ -117,7 +119,7 @@ Kontrollera i denna ordning:
     .\PHP2Shell-Checker-Windows-x64.exe --version
     ```
 
-    Skrivs `PHP2Shell Checker 1.4.1` följt av buildnummer, byggtid och commit
+    Skrivs `PHP2Shell Checker 1.5.0` följt av buildnummer, byggtid och commit
     ut fungerar filen, och problemet gäller i så fall starten av webbläsaren
     eller servern.
 
