@@ -49,6 +49,11 @@ fi
 
 echo "Kontrollerar release-README..."
 head -1 README.txt | grep -q "PHP2Shell Checker $version"
+release_readme_size="$(sed -n 's/.*ska vara \([0-9][0-9 ]*\) byte.*/\1/p' README.txt | head -1 | tr -d ' ')"
+if [ -n "$release_readme_size" ] && [ "$release_readme_size" != "$exe_size" ]; then
+  echo "FEL: release/README.txt anger $release_readme_size byte men EXE är $exe_size byte" >&2
+  exit 1
+fi
 
 echo
 echo "OK: release-paketet är intakt och versionen stämmer."

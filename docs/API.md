@@ -36,9 +36,9 @@ Example response:
 {
   "apiVersion": 1,
   "version": "1.5.0",
-  "buildTime": "2026-11-01T10:20:46Z",
-  "buildNumber": "13",
-  "buildCommit": "ac0485a",
+  "buildTime": "2026-11-03T17:06:14Z",
+  "buildNumber": "17",
+  "buildCommit": "482d351",
   "fixedVersions": {
     "8.2": "8.2.35",
     "8.3": "8.3.36",

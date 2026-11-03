@@ -1,4 +1,4 @@
-PHP2Shell Checker 1.4.1
+PHP2Shell Checker 1.5.0
 =======================
 
 Defensiv kontroll av PHP och PHP2Shell (CVE-2026-109618, CVE-2026-109619)
@@ -30,7 +30,7 @@ Kontrollera i denna ordning:
    PHP2Shell-Checker-Windows-x64.exe.sha256 fran release-mappen.
    Om en giltig Authenticode-signatur ska kravas, lagg till
    -RequireSignature.
-2. EXE-filen ska vara 8 024 576 byte (cirka 7,5 MiB) i version 1.4.1.
+2. EXE-filen ska vara 8 038 912 byte (cirka 7,5 MiB) i version 1.5.0.
    Ar den 0 byte eller bara nagra kilobyte har nedladdningen misslyckats.
 3. Avblockera filen: hogerklicka -> Egenskaper -> Avblockera, eller:
      Unblock-File .\PHP2Shell-Checker-Windows-x64.exe

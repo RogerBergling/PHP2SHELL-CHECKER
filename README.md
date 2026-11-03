@@ -277,7 +277,9 @@ korsbygge och release-verifiering vid varje push och pull request.
 ├── version.go              # Jämförelse mot rättade PHP-versioner
 ├── fuzz_test.go            # Fuzz-tester för parser och analys
 ├── benchmark_test.go       # Prestandatest för 10 000 mål med djupanalys
-├── web/index.html          # Grafiskt gränssnitt (HTML/CSS/JS)
+├── web/index.html          # Grafiskt gränssnitt (HTML)
+├── web/app.css             # Gränssnittets stilmall
+├── web/app.js              # Gränssnittets JavaScript
 ├── build.sh                # Bygger Linux + Windows, ZIP och kontrollsummor
 ├── build-windows.bat       # Bygger Windows lokalt
 ├── verify-release.sh       # Verifierar release-paketet

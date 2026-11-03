@@ -62,7 +62,7 @@ Kontrollera i denna ordning:
    Hashvärdet ska stå i `release/SHA256SUMS.txt`. Stämmer det inte är filen
    ofullständigt nedladdad – ladda ner igen.
 
-3. **Kontrollera filstorleken.** `.exe`-filen ska vara **8 024 576 byte**
+3. **Kontrollera filstorleken.** `.exe`-filen ska vara **8 038 912 byte**
    (cirka 7,5 MiB) i version 1.5.0. Är den 0 byte eller bara några kilobyte har
    nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för
    filen.
