@@ -12,7 +12,31 @@ Skannern finns som fristående filer:
 
 Ingen Python-, Java- eller Go-installation behövs för att köra filerna.
 
-Mer dokumentation: [lokal API](docs/API.md) · [code signing](docs/CODE_SIGNING.md) · [supply chain](docs/SUPPLY_CHAIN.md) · [ändringslogg](CHANGELOG.md) · [säkerhetspolicy](SECURITY.md) · [utveckling](CONTRIBUTING.md) · [MIT-licens](LICENSE) · [tredjepartsnotiser](THIRD_PARTY_NOTICES).
+Mer dokumentation: [lokal API](docs/API.md) · [Windows-felsökning](docs/WINDOWS_TROUBLESHOOTING.md) · [code signing](docs/CODE_SIGNING.md) · [supply chain](docs/SUPPLY_CHAIN.md) · [ändringslogg](CHANGELOG.md) · [säkerhetspolicy](SECURITY.md) · [utveckling](CONTRIBUTING.md) · [MIT-licens](LICENSE) · [tredjepartsnotiser](THIRD_PARTY_NOTICES).
+
+## Kom igång på 2 minuter
+
+1. Ladda ner filen för din plattform från tabellen ovan.
+2. Starta programmet:
+   - **Windows:** extrahera ZIP-filen och dubbelklicka på
+     `PHP2Shell-Checker-Windows-x64.exe`.
+   - **Linux:**
+     ```bash
+     chmod +x release/PHP2Shell-Checker-Linux-x64
+     ./release/PHP2Shell-Checker-Linux-x64
+     ```
+3. Klistra in en eller flera webbadresser i textrutan och klicka på
+   **Starta skanning**. Standardinställningarna fungerar för de flesta.
+4. Klicka på en resultatrad för att se bevis och rekommendation. Markera rader
+   om du vill skapa en bevisrapport.
+
+Ingen installation, inget konto och ingen molntjänst behövs. Programmet körs
+lokalt och öppnar sitt gränssnitt i webbläsaren.
+
+> Ska du skanna interna system? Aktivera **Tillåt privata mål** och kontrollera
+> först att du har uttryckligt tillstånd.
+
+> Problem på Windows? Se [Windows-felsökning](docs/WINDOWS_TROUBLESHOOTING.md).
 
 ## Skärmbilder
 
@@ -23,7 +47,10 @@ Mer dokumentation: [lokal API](docs/API.md) · [code signing](docs/CODE_SIGNING.
 Bilderna visar exempeldata från lokala testsidor. Verktyget visar version,
 buildnummer, byggtid och källcommit längst upp i gränssnittet.
 
-## Snabbstart
+Nedan finns detaljerade plattformsinstruktioner, inställningar, bedömningar,
+begränsningar och utvecklarinformation.
+
+## Plattformsspecifikt
 
 ### Windows
 
@@ -33,61 +60,7 @@ buildnummer, byggtid och källcommit längst upp i gränssnittet.
 4. Om webbläsaren inte öppnas: öppna adressen som står i konsolfönstret.
 5. Stäng av med knappen **Stäng av** i gränssnittet eller genom att stänga konsolfönstret.
 
-> Windows SmartScreen kan varna eftersom filen inte är koddignerad. Välj **Mer information → Kör ändå** om du själv har byggt eller hämtat filen från en betrodd källa. Samma gäller om Windows Defender eller ett annat antivirusprogram flaggar filen – lägg då till den som undantag endast om du litar på källan.
-
-> **Om Harmony EDR eller annat skyddsprogram blockerar filen:** EXE-filen är en osignerad Go-binär med låg spridning och kan därför klassas som misstänkt. Det åtgärdas inte med en kodändring. Låt IT-administratören verifiera SHA-256, godkänna filen i EDR:ens allowlist och skicka in en false-positive-rapport till skyddsleverantören. För bred distribution krävs code signing med ett betrott certifikat (EV-certifikat ger snabbare rykte). Signera aldrig med en egen certifikatkedja och försök inte kringgå EDR. Se [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
-
-#### Om Windows säger att filen är skadad
-
-Fel som **"Filen eller katalogen är skadad och kan inte läsas"** (0x80070570 / `ERROR_FILE_CORRUPT`), **"This app can't run on your PC"** eller en ZIP som visas som tom beror nästan alltid på att filen på datorn är ofullständig, blockerad eller ligger på ett skadat filsystem – inte på programmet. Filerna i `release/` är verifierade med SHA-256 och ZIP-test.
-
-Kontrollera i denna ordning:
-
-1. **Verifiera filen automatiskt.** I PowerShell, i mappen med filerna:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\verify-windows.ps1
-   ```
-   Skriptet visar storlek, första byte (`4D 5A` = giltig Windows-binär) och jämför SHA-256 med `SHA256SUMS.txt` eller EXE-filens `.sha256`. `verify-windows.ps1` och `.sha256`-filen finns i ZIP-filen. Om du bara hämtade EXE-filen kan du ladda ner dem från `release/`. Lägg till `-RequireSignature` om en giltig Authenticode-signatur måste krävas.
-2. **Jämför kontrollsumman manuellt.**
-   ```powershell
-   Get-FileHash .\PHP2Shell-Checker-Windows-x64.exe -Algorithm SHA256
-   ```
-   Hashvärdet ska stå i `release/SHA256SUMS.txt`. Stämmer det inte är filen ofullständigt nedladdad – ladda ner igen.
-3. **Kontrollera filstorleken.** `.exe`-filen ska vara **8 024 576 byte** (cirka 7,5 MiB) i version 1.4.1. Är den 0 byte eller bara några kilobyte har nedladdningen misslyckats, eller så har du sparat en HTML-sida i stället för filen.
-4. **Avblockera filen.** Högerklicka → **Egenskaper** → kryssa i **Avblockera** (Unblock) → **OK**, eller:
-   ```powershell
-   Unblock-File .\PHP2Shell-Checker-Windows-x64.exe
-   ```
-5. **Kör från en lokal mapp.** Starta inte filen direkt från ZIP-filen, OneDrive (filer på begäran), en nätverksenhet eller ett USB-minne som kan vara skadat. Extrahera till till exempel `C:\Temp\PHP2ShellChecker\`.
-6. **Kontrollera antivirus.** Windows Defender eller annat skyddsprogram kan blockera eller skriva om osignerade binärfiler. Kontrollera **Windows-säkerhet → Skyddshistorik**. Lägg bara till ett undantag om du litar på källan.
-7. **Kontrollera disken.** Om både ZIP och EXE blir skadade, kör som administratör:
-   ```powershell
-   chkdsk C: /scan
-   ```
-   Prova också att ladda ner till en annan mapp eller disk. Samma fel för flera filer tyder på filsystem- eller hårdvaruproblem.
-8. **Reservväg om nedladdningen fortsätter bli skadad.** Använd textfilen `release/PHP2Shell-Checker-Windows-x64.exe.gz.b64` (base64-kodad gzip, klarar sig förbi filter som skadar binärfiler):
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\restore-windows.ps1
-   ```
-   Skriptet återställer `.exe`-filen och verifierar SHA-256 automatiskt.
-9. **Bygg lokalt i stället.** Om inget annat fungerar, bygg filen på Windows-datorn – då överförs ingen färdig binärfil:
-   ```powershell
-   winget install --id GoLang.Go -e
-   git clone git@github.com:RogerBergling/PHP2SHELL-CHECKER.git
-   cd PHP2SHELL-CHECKER
-   .\build-windows.bat
-   ```
-10. **Testa från kommandotolken.** Kör `.\PHP2Shell-Checker-Windows-x64.exe --version`. Skrivs `PHP2Shell Checker 1.4.1` följt av buildnummer, byggtid och commit ut fungerar filen, och problemet gäller i så fall starten av webbläsaren eller servern.
-
-> **Smart App Control / S-läge:** Windows 11 kan blockera osignerade program. Kontrollera **Windows-säkerhet → App- och webbläsarkontroll**. Smart App Control kan stängas av om du litar på filen (det går inte att slå på igen utan ominstallation). Windows i **S-läge** kan bara köra program från Microsoft Store.
-
-> **ARM64-dator:** Windows 11 ARM kan köra x64-program via emulering. Fungerar det inte, bygg en egen ARM64-version med `GOARCH=arm64`:
-> ```bat
-> set CGO_ENABLED=0
-> set GOOS=windows
-> set GOARCH=arm64
-> go build -trimpath -buildvcs=false -ldflags "-s -w" -o PHP2Shell-Checker-Windows-arm64.exe .
-> ```
+> SmartScreen, antivirus, EDR eller fel om skadad fil? Se [Windows-felsökning](docs/WINDOWS_TROUBLESHOOTING.md).
 
 ### Linux
 
@@ -306,6 +279,7 @@ korsbygge och release-verifiering vid varje push och pull request.
 ├── sign-windows.ps1        # Authenticode-signering av Windows-EXE
 ├── docs/API.md             # Dokumentation för det lokala API:et
 ├── docs/CODE_SIGNING.md    # Code signing, certifikat och EDR
+├── docs/WINDOWS_TROUBLESHOOTING.md # SmartScreen, EDR och skadade filer
 ├── docs/SUPPLY_CHAIN.md    # Branch protection, SBOM och releaseprovenance
 ├── docs/images/            # Skärmbilder för README
 ├── .github/workflows/      # CI: test, statisk analys och korsbygge
