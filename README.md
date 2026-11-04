@@ -311,3 +311,14 @@ korsbygge och release-verifiering vid varje push och pull request.
 
 Projektet är licensierat under [MIT](LICENSE). Go-runtime och standardbibliotek
 omfattas av Go-projektets BSD-licens; se [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+
+---
+
+## Utvecklingsnotis
+
+Det här projektet har utvecklats med AI-assistans och mänsklig granskning.
+Underhållaren definierar krav, hotmodell, kantfall och acceptanskriterier; AI
+hjälper till att skriva och refaktorera kod; underhållaren testar, bryter och
+verifierar. Programvaran tillhandahålls i befintligt skick, utan garanti. Se
+[How this was built](https://apps.bergling.net/how-this-was-built/) för en
+längre förklaring.
