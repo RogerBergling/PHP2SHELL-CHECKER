@@ -1,0 +1,7 @@
+title = "PHP2Shell Checker Gitleaks configuration"
+
+[allowlist]
+description = "Compiled release binaries are scanned from source instead"
+paths = [
+  '''release/''',
+]
