@@ -1,5 +1,7 @@
 # PHP2Shell Checker
 
+**Project facts (2026-11-25):** version **1.5.0** · Go 1.27 with embedded web UI · `go test`, `go test -race`, `go vet`, `verify-release.sh` · MIT licensed.
+
 En snabb, defensiv skanner med grafiskt gränssnitt för att kontrollera om en webbplats använder PHP, göra en djup versionanalys och avgöra om PHP-versionen påverkas av **PHP2Shell** (CVE-2026-109618 och CVE-2026-109619). Skannern flaggar även **CVE-2026-115560** (`session.upload_progress`) som en separat rekommendation.
 
 Skannern finns som fristående filer:
@@ -11,6 +13,12 @@ Skannern finns som fristående filer:
 | Linux 64-bit | [`release/PHP2Shell-Checker-Linux-x64`](release/PHP2Shell-Checker-Linux-x64) |
 
 Ingen Python-, Java- eller Go-installation behövs för att köra filerna.
+
+> **Utvecklarläge:** källkoden innehåller ännu inte släppta säkerhetsfixar
+> (bland annat ingen HTTP-nedgradering med egna headers/cookies och inget
+> proxy-baserat kringgående av privata mål). Binärerna i `release/` är byggda
+> före dessa fixar. Bygg om och publicera en ny version innan du distribuerar
+> dem.
 
 Mer dokumentation: [lokal API](docs/API.md) · [Windows-felsökning](docs/WINDOWS_TROUBLESHOOTING.md) · [code signing](docs/CODE_SIGNING.md) · [supply chain](docs/SUPPLY_CHAIN.md) · [ändringslogg](CHANGELOG.md) · [säkerhetspolicy](SECURITY.md) · [utveckling](CONTRIBUTING.md) · [MIT-licens](LICENSE) · [tredjepartsnotiser](THIRD_PARTY_NOTICES).
 
@@ -126,8 +134,16 @@ Längst upp i gränssnittet visas version, buildnummer, byggtid och källcommit.
 Headers, cookies och proxy-URL sparas inte i webbläsarens `localStorage`, eftersom de kan innehålla autentiseringsuppgifter.
 
 Privata, lokala och reserverade mål blockeras som standard, även vid
-omdirigering. Aktivera **Tillåt privata mål** endast för interna system som du
-har uttryckligt tillstånd att skanna.
+omdirigering. Miljövariabler för proxy (`HTTP_PROXY`, `HTTPS_PROXY`,
+`ALL_PROXY`) stänger inte av den kontrollen; endast en uttrycklig `proxyUrl`
+gör att dial-skyddet anpassas, och då måste proxyn ha egna egress-regler.
+Aktivera **Tillåt privata mål** endast för interna system som du har
+uttryckligt tillstånd att skanna.
+
+Om ett värdnamn utan schema först försöker HTTPS och misslyckas, görs inget
+automatiskt HTTP-försök när egna headers eller cookies är angivna. De kan
+innehålla autentiseringsuppgifter och skickas aldrig okrypterade. Ange då
+`http://` uttryckligen om du accepterar risken.
 
 Efter tre konsekutiva nätverksfel mot samma värd stoppas ytterligare anrop till
 värden under resten av skanningen.
@@ -213,7 +229,7 @@ Rapporterna beskriver uttryckligen att kontrollen är icke-invasiv: inga exploit
 ## Säkerhet och etik
 
 - Använd skannern **endast** på system som du äger eller har uttryckligt tillstånd att testa.
-- Privata, lokala och reserverade mål blockeras som standard, även vid omdirigering. **Tillåt privata mål** kräver uttryckligt tillstånd för de interna systemen.
+- Privata, lokala och reserverade mål blockeras som standard, även vid omdirigering. Miljöproxies stänger inte av dial-skyddet; en uttrycklig `proxyUrl` kräver egna egress-regler. **Tillåt privata mål** kräver uttryckligt tillstånd för de interna systemen.
 - Den lokala servern lyssnar bara på `127.0.0.1` och skyddas av en slumpmässig token per start. Token skickas i URL-fragmentet och exponeras inte i startsidan; den sparas bara i webbläsarens `sessionStorage`.
 - Appen har ingen telemetri och skickar inte resultat till någon molntjänst. Om du använder proxy, EDR eller annan nätverksinspektion kan dessa se mål-URL:er och trafik.
 - Skannern är avsedd för defensiv kontroll och inventering.
@@ -322,3 +338,10 @@ hjälper till att skriva och refaktorera kod; underhållaren testar, bryter och
 verifierar. Programvaran tillhandahålls i befintligt skick, utan garanti. Se
 [How this was built](https://apps.bergling.net/how-this-was-built/) för en
 längre förklaring.
+
+## AI assistance
+
+Developed with AI assistance and human review. The maintainer defines the
+requirements, threat model and acceptance criteria; AI helps write and refactor
+code; the maintainer runs, tests and verifies the result. The software is
+provided as-is, without warranty.

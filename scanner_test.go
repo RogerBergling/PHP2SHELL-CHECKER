@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -222,6 +223,54 @@ func TestValidateProxyURL(t *testing.T) {
 		if err := opts.validate(); err == nil {
 			t.Fatalf("validate(%q) succeeded, want an error", value)
 		}
+	}
+}
+
+func TestProxyConfiguredRequiresExplicitProxy(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:3128")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:3128")
+	t.Setenv("ALL_PROXY", "http://127.0.0.1:3128")
+	if proxyConfigured(ScanOptions{}) || proxyConfigured(ScanOptions{ProxyURL: "env"}) {
+		t.Fatal("environment proxy must not disable the dial-time private-address guard")
+	}
+	if !proxyConfigured(ScanOptions{ProxyURL: "http://proxy.example:8080"}) {
+		t.Fatal("explicit proxy should be recognised")
+	}
+}
+
+func TestHTTPFallbackRejectsCredentialBearingOptions(t *testing.T) {
+	if allowsHTTPFallback(ScanOptions{Headers: map[string]string{"Authorization": "Bearer x"}}) {
+		t.Fatal("custom headers must block cleartext fallback")
+	}
+	if allowsHTTPFallback(ScanOptions{Cookies: map[string]string{"session": "x"}}) {
+		t.Fatal("cookies must block cleartext fallback")
+	}
+	if !allowsHTTPFallback(ScanOptions{}) {
+		t.Fatal("plain scans should still allow the fallback")
+	}
+}
+
+func TestBlockedTargetIncludesTransitionAddresses(t *testing.T) {
+	for _, raw := range []string{
+		"64:ff9b::a9fe:a9fe",                      // NAT64-embedded 169.254.169.254
+		"2002:7f00:1::1",                          // 6to4-embedded 127.0.0.1
+		"2001:0000:4136:e378:8000:63bf:3fff:fdd2", // Teredo
+	} {
+		ip := net.ParseIP(raw)
+		if ip == nil {
+			t.Fatalf("could not parse %q", raw)
+		}
+		if !isBlockedTargetIP(ip) {
+			t.Errorf("isBlockedTargetIP(%s) = false, want true", raw)
+		}
+	}
+}
+
+func TestRedactInputMalformedUserInfo(t *testing.T) {
+	raw := "http://user:pass@[::1"
+	got := redactInput(raw)
+	if strings.Contains(got, "user") || strings.Contains(got, "pass") {
+		t.Fatalf("redactInput(%q) = %q, credentials not redacted", raw, got)
 	}
 }
 

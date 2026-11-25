@@ -221,6 +221,9 @@ var (
 			"198.51.100.0/24", // documentation
 			"203.0.113.0/24",  // documentation
 			"240.0.0.0/4",     // reserved
+			"64:ff9b::/96",    // NAT64; can embed private IPv4 addresses
+			"2002::/16",       // 6to4; can embed private IPv4 addresses
+			"2001::/32",       // Teredo
 			"2001:db8::/32",   // documentation
 		} {
 			_, network, err := net.ParseCIDR(raw)
@@ -281,20 +284,22 @@ func validateTargetURL(ctx context.Context, u *url.URL) error {
 	return nil
 }
 
+// allowsHTTPFallback reports whether an implicit HTTPS-to-HTTP retry is safe.
+// Custom headers and cookies may contain credentials, so they are never sent
+// over cleartext after an HTTPS failure. The operator must use an explicit
+// http:// target and accept that risk.
+func allowsHTTPFallback(opts ScanOptions) bool {
+	return len(opts.Headers) == 0 && len(opts.Cookies) == 0
+}
+
+// proxyConfigured reports whether the operator explicitly configured a proxy.
+// Environment proxies deliberately do not disable the dial-time private-address
+// guard: NO_PROXY may still send the request directly, and an unrelated
+// HTTP_PROXY variable must not weaken the guard. Operators who need a private
+// proxy can set proxyUrl explicitly and enforce egress controls there.
 func proxyConfigured(opts ScanOptions) bool {
 	switch strings.ToLower(strings.TrimSpace(opts.ProxyURL)) {
-	case "direct", "none":
-		return false
-	case "", "env":
-		for _, key := range []string{
-			"HTTPS_PROXY", "https_proxy",
-			"HTTP_PROXY", "http_proxy",
-			"ALL_PROXY", "all_proxy",
-		} {
-			if strings.TrimSpace(os.Getenv(key)) != "" {
-				return true
-			}
-		}
+	case "", "env", "direct", "none":
 		return false
 	default:
 		return true
@@ -644,11 +649,15 @@ func (s *Scanner) Scan(ctx context.Context, raw string) (res Result) {
 	var notes []string
 	page, err := s.fetch(ctx, target)
 	if err != nil && !explicitScheme && strings.HasPrefix(target, "https://") {
-		httpTarget := "http://" + strings.TrimPrefix(target, "https://")
-		if fallback, fallbackErr := s.fetch(ctx, httpTarget); fallbackErr == nil {
-			page = fallback
-			err = nil
-			notes = append(notes, "HTTPS misslyckades – HTTP användes i stället")
+		if !allowsHTTPFallback(s.opts) {
+			notes = append(notes, "HTTPS misslyckades – HTTP-fallback hoppades över eftersom anpassade huvuden eller cookies inte skickas okrypterat")
+		} else {
+			httpTarget := "http://" + strings.TrimPrefix(target, "https://")
+			if fallback, fallbackErr := s.fetch(ctx, httpTarget); fallbackErr == nil {
+				page = fallback
+				err = nil
+				notes = append(notes, "HTTPS misslyckades – HTTP användes i stället")
+			}
 		}
 	}
 	if err != nil {
@@ -1408,6 +1417,8 @@ func truncate(s string, max int) string {
 	return s[:max] + "…"
 }
 
+var malformedUserInfoRe = regexp.MustCompile(`//[^/@\s]+@`)
+
 func redactInput(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	candidate := trimmed
@@ -1418,7 +1429,10 @@ func redactInput(raw string) string {
 	}
 	u, err := url.Parse(candidate)
 	if err != nil || u.User == nil {
-		return trimmed
+		// A malformed URL can still contain credentials before the parse
+		// failure. Redact the userinfo part so it never reaches results,
+		// exports or the evidence report.
+		return malformedUserInfoRe.ReplaceAllString(trimmed, "//redacted@")
 	}
 	u.User = url.User("redacted")
 	out := u.String()

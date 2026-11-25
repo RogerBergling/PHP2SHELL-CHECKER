@@ -3,6 +3,22 @@
 All notable changes are documented here. The project follows semantic
 versioning for the application and the local API.
 
+## [Unreleased]
+
+### Security
+
+- An implicit HTTPS-to-HTTP retry is no longer attempted when custom headers
+  or cookies are configured. Those values may contain credentials and must not
+  be sent in cleartext after a TLS failure.
+- Environment proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) no
+  longer disable the dial-time private-address guard. Only an explicit
+  `proxyUrl` opts into proxy-aware dialing, and the operator must enforce
+  egress controls on that proxy.
+- Added NAT64 (`64:ff9b::/96`), 6to4 (`2002::/16`) and Teredo (`2001::/32`)
+  to the blocked reserved ranges.
+- Malformed target URLs containing userinfo are now redacted before they can
+  reach results, CSV/JSON exports or the evidence report.
+
 ## [1.5.0] - 2026-11-03
 
 ### Security
